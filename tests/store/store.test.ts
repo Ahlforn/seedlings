@@ -51,3 +51,13 @@ test('flags', () => {
   const s = openStore(':memory:'); expect(s.getFlag('halt')).toBeNull()
   s.setFlag('halt', 'x'); expect(s.getFlag('halt')).toBe('x'); s.setFlag('halt', null); expect(s.getFlag('halt')).toBeNull()
 })
+
+test('spending can be counted for one character or everyone else', () => {
+  const s = openStore(':memory:'); s.addSpend(1, 'pip', 0.5); s.addSpend(2, 'c4', 0.1); s.addSpend(3, 'c5', 0.3)
+  expect(s.spentBetween(0, 10, { only: 'pip' })).toBeCloseTo(0.5)
+  expect(s.spentBetween(0, 10, { except: 'pip' })).toBeCloseTo(0.4)
+  expect(s.spentBetween(0, 10)).toBeCloseTo(0.9)
+  expect(s.averageSpend(5, { except: 'pip' })).toBeCloseTo(0.2)
+  expect(s.averageSpend(5, { only: 'pip' })).toBeCloseTo(0.5)
+  expect(s.spendCount({ except: 'pip' })).toBe(2); expect(s.spendCount()).toBe(3)
+})

@@ -4,7 +4,8 @@
  */
 
 import type { ModelUsage } from '../model/client.ts'
-import type { Store } from '../store/store.ts'
+import type { SpendPool, Store } from '../store/store.ts'
+import { PIP_ID } from '../world/world.ts'
 
 export type BudgetSettings = {
   monthlyAllowance: number
@@ -17,6 +18,13 @@ export type BudgetSettings = {
   fallbackOutputPerM: number
   /** assumed cost of a turn before there is any history */
   seedCost: number
+  /** the inhabitants' part of each day's share, once there are any */
+  inhabitantShare: number
+  /** model calls an inhabitant is expected to make in a real day, for working out how many the town supports */
+  turnsPerInhabitantDay: number
+  maxPopulation: number
+  /** inhabitant calls to see before trusting their average cost; until then the town supports one */
+  probeCalls: number
 }
 
 export const DEFAULT_PACING = {
@@ -25,7 +33,14 @@ export const DEFAULT_PACING = {
   fallbackInputPerM: 1.4,
   fallbackOutputPerM: 4.4,
   seedCost: 0.02,
+  inhabitantShare: 0.5,
+  turnsPerInhabitantDay: 200,
+  maxPopulation: 12,
+  probeCalls: 10,
 }
+
+/** Whose share: the whole town's, Pip's, or the inhabitants' together. */
+export type Pool = 'town' | 'origin' | 'inhabitants'
 
 export type BudgetReason = 'ok' | 'day_share_spent' | 'five_hour_limit' | 'weekly_limit' | 'month_spent' | 'charged_to_balance'
 export type BudgetStatus = {
@@ -37,7 +52,10 @@ export type BudgetStatus = {
 }
 export type BudgetKeeper = {
   record(characterId: string, usage: ModelUsage): void
-  status(): BudgetStatus
+  /** For the inhabitants, intervalMs is how often each one of them may think. */
+  status(pool?: Pool): BudgetStatus
+  /** How many inhabitants the town can support. */
+  supportable(): number
   clearHalt(): void
 }
 
@@ -50,7 +68,9 @@ const HISTORY = 20
 
 const clamp = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value))
 
-export function createBudgetKeeper(store: Store, settings: BudgetSettings, now: () => number): BudgetKeeper {
+const POOLS: Record<Pool, SpendPool | undefined> = { town: undefined, origin: { only: PIP_ID }, inhabitants: { except: PIP_ID } }
+
+export function createBudgetKeeper(store: Store, settings: BudgetSettings, now: () => number, population: () => number = () => 0): BudgetKeeper {
   /** The renewal moment in a given month. A renewal day the month does not have falls on its last day. */
   function renewal(year: number, month: number): number {
     const daysInMonth = new Date(Date.UTC(year, month + 1, 0)).getUTCDate()
@@ -78,23 +98,31 @@ export function createBudgetKeeper(store: Store, settings: BudgetSettings, now: 
       store.setFlag(HALT_FLAG, null)
     },
 
-    status() {
+    status(pool = 'town') {
       const at = now()
       const dayStart = Math.floor(at / DAY) * DAY
       const dayEnd = dayStart + DAY
       const { start, end } = period(at)
       const monthly = settings.monthlyAllowance
+      const whose = POOLS[pool]
+      const people = population()
 
       const spentPeriod = store.spentBetween(start, at + 1)
-      const spentToday = store.spentBetween(dayStart, at + 1)
+      const spentTodayTown = store.spentBetween(dayStart, at + 1)
       const daysLeft = Math.max(1, Math.ceil((end - dayStart) / DAY))
-      const share = Math.max(0, (monthly - (spentPeriod - spentToday)) / daysLeft)
+      const townShare = Math.max(0, (monthly - (spentPeriod - spentTodayTown)) / daysLeft)
+      // Alone, Pip has the whole share; with company, the inhabitants have their part of it.
+      const fraction = pool === 'town' ? 1 : people === 0 ? (pool === 'origin' ? 1 : 0) : pool === 'origin' ? 1 - settings.inhabitantShare : settings.inhabitantShare
+      const share = townShare * fraction
+      const spentToday = whose ? store.spentBetween(dayStart, at + 1, whose) : spentTodayTown
       const leftToday = share - spentToday
-      const typical = store.averageSpend(HISTORY) || settings.seedCost
+      const typical = store.averageSpend(HISTORY, whose) || settings.seedCost
 
       const turnsLeft = Math.floor(leftToday / typical + 1e-9)
+      // The inhabitants' turns are shared between them, so each one waits that much longer.
+      const turnsEach = pool === 'inhabitants' ? turnsLeft / Math.max(1, people) : turnsLeft
       const intervalMs = turnsLeft > 0
-        ? clamp(Math.floor((dayEnd - at) / turnsLeft), settings.minIntervalMs, settings.maxIntervalMs)
+        ? clamp(Math.floor((dayEnd - at) / turnsEach), settings.minIntervalMs, settings.maxIntervalMs)
         : settings.maxIntervalMs
       const leftTodayFraction = share > 0 ? clamp(leftToday / share, 0, 1) : 0
       const stopped = (reason: BudgetReason, resumeAt: number | null): BudgetStatus =>
@@ -106,6 +134,17 @@ export function createBudgetKeeper(store: Store, settings: BudgetSettings, now: 
       if (store.spentBetween(at - 5 * HOUR, at + 1) + typical > FIVE_HOUR_SHARE * monthly) return stopped('five_hour_limit', at + HOUR)
       if (turnsLeft < 1) return stopped('day_share_spent', dayEnd)
       return { canThink: true, reason: 'ok', resumeAt: null, leftTodayFraction, intervalMs }
+    },
+
+    supportable() {
+      const whose = POOLS.inhabitants
+      if (store.spendCount(whose) < settings.probeCalls) return Math.max(1, population())
+      const { start, end } = period(now())
+      const daysInPeriod = Math.max(1, Math.round((end - start) / DAY))
+      const perDay = (settings.monthlyAllowance * settings.inhabitantShare) / daysInPeriod
+      const typical = store.averageSpend(HISTORY, whose)
+      if (typical <= 0) return settings.maxPopulation
+      return clamp(Math.floor(perDay / (typical * settings.turnsPerInhabitantDay) + 1e-9), 0, settings.maxPopulation)
     },
   }
 }

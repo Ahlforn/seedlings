@@ -73,3 +73,51 @@ test('a renewal day of 31 falls on the last day of shorter months', () => {
   store.addSpend(now.t, 'pip', 2)
   expect(k.status()).toMatchObject({ reason: 'month_spent', resumeAt: Date.UTC(2027, 2, 31) })
 })
+
+// ---- Stage 2: pools ----
+const town = (now: { t: number }, population: { n: number }) => { const store = openStore(':memory:')
+  return { store, k: createBudgetKeeper(store, { monthlyAllowance: 60, periodStartDay: 1, ...DEFAULT_PACING }, () => now.t, () => population.n) } }
+
+test('alone, Pip has the whole share', () => {
+  const { k } = town({ t: t0 }, { n: 0 })
+  expect(k.status('origin')).toMatchObject({ canThink: true, leftTodayFraction: 1, intervalMs: DAY / 100 })
+  expect(k.status('inhabitants')).toMatchObject({ canThink: false, reason: 'day_share_spent' })
+})
+test('with inhabitants, each pool has half and spends only its own', () => {
+  const now = { t: t0 + 1000 }; const { k } = town(now, { n: 2 })
+  k.record('pip', used(1.0))
+  expect(k.status('origin')).toMatchObject({ canThink: false, reason: 'day_share_spent' })
+  expect(k.status('inhabitants')).toMatchObject({ canThink: true, leftTodayFraction: 1 })
+  expect(k.status('town').leftTodayFraction).toBeCloseTo(0.5)
+})
+test('an inhabitant waits longer the more inhabitants there are', () => {
+  const now = { t: t0 }; const population = { n: 2 }; const { k } = town(now, population)
+  k.record('c4', used(0.001))
+  const two = k.status('inhabitants').intervalMs
+  population.n = 4
+  expect(k.status('inhabitants').intervalMs / two).toBeCloseTo(2, 1)
+})
+test('the weekly limit stops every pool', () => {
+  const now = { t: t0 + 3 * DAY }; const { k } = town(now, { n: 1 })
+  k.record('pip', used(31))
+  expect(k.status('inhabitants')).toMatchObject({ canThink: false, reason: 'weekly_limit' })
+})
+test('the town supports one inhabitant until it knows what they cost', () => {
+  const population = { n: 0 }; const { k } = town({ t: t0 }, population)
+  expect(k.supportable()).toBe(1)
+  population.n = 3; expect(k.supportable()).toBe(3)
+  for (let i = 0; i < 9; i++) k.record('c4', used(0.001))
+  expect(k.supportable()).toBe(3)
+})
+test('after that, the number comes from what inhabitant calls cost', () => {
+  const { k } = town({ t: t0 }, { n: 1 })
+  for (let i = 0; i < 10; i++) k.record('c4', used(0.001))
+  expect(k.supportable()).toBe(5)                                // 60 × 0.5 / 30 = 1.0 a day; 1.0 / (0.001 × 200) = 5
+  for (let i = 0; i < 20; i++) k.record('c4', used(0.0001))
+  expect(k.supportable()).toBe(12)                               // fifty would fit; twelve is the most
+})
+test('Pip spending does not count as inhabitant history', () => {
+  const { k } = town({ t: t0 }, { n: 0 })
+  for (let i = 0; i < 20; i++) k.record('pip', used(0.02))
+  expect(k.supportable()).toBe(1)
+})

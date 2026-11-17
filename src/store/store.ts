@@ -46,6 +46,9 @@ export type DiaryEntry = {
   toTurn: number
 }
 
+/** Whose spending to count, by character id. */
+export type SpendPool = { only: string } | { except: string }
+
 export type Store = {
   saveWorld(w: World): void
   loadWorld(): World | null
@@ -75,9 +78,10 @@ export type Store = {
   diaryEntry(id: number): DiaryEntry | null
   addSpend(ts: number, characterId: string, amount: number): void
   /** from is included, to is not */
-  spentBetween(fromTs: number, toTs: number): number
+  spentBetween(fromTs: number, toTs: number, pool?: SpendPool): number
   /** 0 when there is no history */
-  averageSpend(lastN: number): number
+  averageSpend(lastN: number, pool?: SpendPool): number
+  spendCount(pool?: SpendPool): number
   getFlag(key: string): string | null
   setFlag(key: string, value: string | null): void
   close(): void
@@ -156,8 +160,15 @@ export function openStore(path: string): Store {
   const diary = db.prepare('select * from diary where characterId = ? and id < ? order by id desc limit ?')
   const diaryEntry = db.prepare('select * from diary where id = ?')
   const addSpend = db.prepare('insert into ledger (ts, characterId, amount) values (?, ?, ?)')
-  const spentBetween = db.prepare('select coalesce(sum(amount), 0) as total from ledger where ts >= ? and ts < ?')
-  const averageSpend = db.prepare('select coalesce(avg(amount), 0) as average from (select amount from ledger order by id desc limit ?)')
+  // One statement per pool shape: everyone, only one character, or everyone but one.
+  const whose = (pool: SpendPool | undefined) =>
+    pool === undefined ? { where: '1 = 1', args: [] } : 'only' in pool ? { where: 'characterId = ?', args: [pool.only] } : { where: 'characterId != ?', args: [pool.except] }
+  const statements = new Map<string, Database.Statement>()
+  const ask = (sql: string) => {
+    let statement = statements.get(sql)
+    if (!statement) statements.set(sql, (statement = db.prepare(sql)))
+    return statement
+  }
   const getFlag = db.prepare('select value from flags where key = ?')
   const setFlag = db.prepare('insert into flags (key, value) values (?, ?) on conflict (key) do update set value = excluded.value')
   const clearFlag = db.prepare('delete from flags where key = ?')
@@ -187,8 +198,18 @@ export function openStore(path: string): Store {
     diary: (characterId, limit, beforeId) => diary.all(characterId, beforeId ?? Number.MAX_SAFE_INTEGER, limit) as DiaryEntry[],
     diaryEntry: (id) => (diaryEntry.get(id) as DiaryEntry | undefined) ?? null,
     addSpend: (ts, characterId, amount) => { addSpend.run(ts, characterId, amount) },
-    spentBetween: (fromTs, toTs) => (spentBetween.get(fromTs, toTs) as { total: number }).total,
-    averageSpend: (lastN) => (averageSpend.get(lastN) as { average: number }).average,
+    spentBetween: (fromTs, toTs, pool) => {
+      const { where, args } = whose(pool)
+      return (ask(`select coalesce(sum(amount), 0) as total from ledger where ts >= ? and ts < ? and ${where}`).get(fromTs, toTs, ...args) as { total: number }).total
+    },
+    averageSpend: (lastN, pool) => {
+      const { where, args } = whose(pool)
+      return (ask(`select coalesce(avg(amount), 0) as average from (select amount from ledger where ${where} order by id desc limit ?)`).get(...args, lastN) as { average: number }).average
+    },
+    spendCount: (pool) => {
+      const { where, args } = whose(pool)
+      return (ask(`select count(*) as n from ledger where ${where}`).get(...args) as { n: number }).n
+    },
     getFlag: (key) => (getFlag.get(key) as { value: string } | undefined)?.value ?? null,
     setFlag: (key, value) => { if (value === null) clearFlag.run(key); else setFlag.run(key, value) },
     close: () => { db.close() },
