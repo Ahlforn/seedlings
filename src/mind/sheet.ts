@@ -1,6 +1,8 @@
-/** A character sheet is the only part of a character anyone writes. Everything else is earned. */
+/** Pip's character sheet. The only part of Pip anyone wrote. */
 
-export type Sheet = { name: string; you: string; core: string; traits: string[]; values: string[]; fears: string[] }
+import type { Sheet } from '../shared/types.ts'
+
+export type { Sheet } from '../shared/types.ts'
 
 /** Temperament and values only. No interests: whatever Pip takes to has to come from Pip. */
 export const PIP_SHEET: Sheet = {

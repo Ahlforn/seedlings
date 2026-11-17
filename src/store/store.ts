@@ -3,9 +3,9 @@
 import { mkdirSync } from 'node:fs'
 import { dirname } from 'node:path'
 import Database from 'better-sqlite3'
-import type { World } from '../shared/types.ts'
+import type { MemoryKind, World } from '../shared/types.ts'
 
-export type MemoryKind = 'person' | 'work' | 'fact' | 'moment'
+export type { MemoryKind } from '../shared/types.ts'
 export type MindKind = 'want' | 'worry' | 'question' | 'promise'
 
 export type TurnRow = {

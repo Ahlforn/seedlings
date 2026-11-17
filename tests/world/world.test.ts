@@ -40,3 +40,21 @@ test('only the newest 50 events are kept', () => {
   const w = createWorld(1); for (let i = 0; i < 60; i++) addEvent(w, `e${i}`)
   expect(w.events).toHaveLength(50); expect(w.events.at(-1)!.text).toBe('e59')
 })
+
+// ---- Stage 2 ----
+import { migrateWorld } from '../../src/world/world.ts'
+test('a new world starts with no notes and room for nobody', () => {
+  const w = createWorld(1)
+  expect(w.notes).toEqual([]); expect(w.populationLimit).toBe(0)
+  expect(character(w, PIP_ID)).toMatchObject({ homeId: null, look: null, sheet: null, heard: [] })
+})
+// Review Focus 3
+test('a stage 1 world gains the new fields and keeps everything else', () => {
+  const old = JSON.parse(JSON.stringify(createWorld(1)))
+  delete old.notes; delete old.populationLimit
+  for (const c of old.characters) { delete c.homeId; delete c.look; delete c.sheet; delete c.heard }
+  old.minutes = 5000
+  const w = migrateWorld(old)
+  expect(w.minutes).toBe(5000); expect(w.notes).toEqual([]); expect(w.populationLimit).toBe(0)
+  expect(w.characters[0]).toMatchObject({ id: 'pip', homeId: null, look: null, sheet: null, heard: [] })
+})

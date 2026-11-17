@@ -1,6 +1,7 @@
 /** Types shared by the server and the watch page. */
 
 export type Tile = { x: number; y: number }
+export type MemoryKind = 'person' | 'work' | 'fact' | 'moment'
 export type Urgency = 'satisfied' | 'mild' | 'strong' | 'urgent'
 
 export type FeatureKind = 'berry_bush' | 'hollow_tree' | 'pond' | 'tree'
@@ -39,6 +40,14 @@ export type Body = { hunger: number; tiredness: number; mood: number }
 
 export type Act = { action: string; params: Record<string, string> }
 
+/** A character sheet is the only part of a character anyone writes. Everything else is earned. */
+export type Sheet = { name: string; you: string; core: string; traits: string[]; values: string[]; fears: string[] }
+export type Mark = 'ears' | 'antennae' | 'tail' | 'hat' | 'scarf' | 'spots'
+export type Look = { colour: Colour; mark: Mark }
+/** Something said within earshot, kept until the listener's next turn. */
+export type Heard = { from: string; text: string; minute: number; toYou: boolean }
+export type Note = { id: string; at: Tile; place: string; by: string; text: string; minute: number }
+
 export type Character = {
   id: string
   name: string
@@ -54,6 +63,11 @@ export type Character = {
   /** moves still to do from the last decision, and that turn's id */
   queue: Act[]
   queueTurn: number
+  /** inhabitants only: where they live, how they look, and the sheet Pip wrote */
+  homeId: string | null
+  look: Look | null
+  sheet: Sheet | null
+  heard: Heard[]
 }
 
 export type World = {
@@ -66,6 +80,9 @@ export type World = {
   buildings: Building[]
   characters: Character[]
   events: { minute: number; text: string }[]
+  notes: Note[]
+  /** how many inhabitants the budget can support; set by the scheduler */
+  populationLimit: number
   nextId: number
 }
 

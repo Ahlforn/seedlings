@@ -10,13 +10,13 @@ import { wanderingClient } from './model/scripted.ts'
 import { createServer } from './server/http.ts'
 import { openStore } from './store/store.ts'
 import { createScheduler } from './town/scheduler.ts'
-import { createWorld } from './world/world.ts'
+import { createWorld, migrateWorld } from './world/world.ts'
 
 const FAKE_INTERVAL_MS = 1000
 
 export async function startTown(config: Config): Promise<{ port: number; stop(): Promise<void> }> {
   const store = openStore(config.dbPath)
-  const world = store.loadWorld() ?? createWorld(config.seed)
+  const world = migrateWorld(store.loadWorld() ?? createWorld(config.seed))
   const model = config.fakeModel
     ? wanderingClient()
     : openAiClient({ baseUrl: config.baseUrl, apiKey: config.apiKey, userAgent: config.userAgent, jsonMode: config.jsonMode })

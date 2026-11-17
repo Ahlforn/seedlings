@@ -62,6 +62,8 @@ export function createWorld(seed: number): World {
     buildings: [],
     characters: [],
     events: [],
+    notes: [],
+    populationLimit: 0,
     nextId: 4,
   }
   const start: Tile = { x: 12, y: 12 }
@@ -86,7 +88,24 @@ export function createWorld(seed: number): World {
     saidAt: 0,
     queue: [],
     queueTurn: 0,
+    homeId: null,
+    look: null,
+    sheet: null,
+    heard: [],
   })
+  return world
+}
+
+/** Fills in whatever a world saved by an older version lacks. Mutates and returns the same world. */
+export function migrateWorld(world: World): World {
+  world.notes ??= []
+  world.populationLimit ??= 0
+  for (const c of world.characters) {
+    c.homeId ??= null
+    c.look ??= null
+    c.sheet ??= null
+    c.heard ??= []
+  }
   return world
 }
 
