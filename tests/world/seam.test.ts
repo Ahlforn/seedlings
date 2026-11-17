@@ -5,9 +5,9 @@ const names = (o: ReturnType<typeof observe>) => o.available.map(a => a.name)
 const firstSite = (w: ReturnType<typeof createWorld>) =>
   observe(w, PIP_ID).available.find(a => a.name === 'start_building')!.params.site[0]
 
-test('the manifest carries the stance and ten moves', () => {
-  expect(manifest().stance).toBe('Nobody tells you what to do with your day.')
-  expect(manifest().moves).toHaveLength(10)
+test('the manifest carries the stance and every move', () => {
+  expect(manifest('origin').stance).toBe('Nobody tells you what to do with your day.')
+  expect(manifest('origin').moves.map((m) => m.name)).toContain('leave_note')
 })
 test('on day one Pip can start a building but has nothing to work on', () => {
   const o = observe(createWorld(1), PIP_ID)
@@ -108,4 +108,87 @@ test('a place named without its "the" is still understood', () => {
   expect(act(createWorld(1), PIP_ID, { action: 'start_building', params: { site: 'middle of the plot', purpose: 'home' } }).success).toBe(true)
   expect(act(createWorld(1), PIP_ID, { action: 'look_at', params: { target: 'The Pond' } }).success).toBe(true)
   expect(act(createWorld(1), PIP_ID, { action: 'look_at', params: { target: 'the moon' } }).success).toBe(false)
+})
+
+// ---- Stage 2: people, hearing, notes ----
+import { addInhabitant } from './helpers.ts'
+
+test('speaking to someone is heard by everyone near and remembered by each', () => {
+  const w = createWorld(1); const pip = character(w, PIP_ID)
+  const mo = addInhabitant(w, 'Mo', pip.at); const fen = addInhabitant(w, 'Fen', { x: pip.at.x + 1, y: pip.at.y })
+  const r = act(w, PIP_ID, { action: 'speak', params: { to: 'Mo', text: 'Hello' } })
+  expect(r.success).toBe(true); expect([...r.heardBy].sort()).toEqual([mo.id, fen.id].sort())
+  expect(mo.heard[0]).toMatchObject({ from: 'Pip', text: 'Hello', toYou: true })
+  expect(fen.heard[0].toYou).toBe(false)
+  expect(r.leaves).toContainEqual({ characterId: mo.id, text: 'Pip said to me: "Hello"', kind: 'person' })
+  expect(r.leaves).toContainEqual({ characterId: fen.id, text: 'Pip said: "Hello"', kind: 'person' })
+  expect(observe(w, mo.id).heard).toEqual(['Pip said to you: "Hello"'])
+  expect(observe(w, fen.id).heard).toEqual(['Pip said: "Hello"'])
+  expect(w.events.at(-1)!.text).toBe('Pip said to Mo: "Hello"')
+})
+test('speaking to someone out of earshot is refused in words', () => {
+  const w = createWorld(1); const pip = character(w, PIP_ID)
+  addInhabitant(w, 'Mo', { x: pip.at.x + 10, y: pip.at.y })
+  const r = act(w, PIP_ID, { action: 'speak', params: { to: 'Mo', text: 'Hello' } })
+  expect(r.success).toBe(false); expect(r.message).toContain('anyone')
+})
+test('a note left at the pond is seen by whoever stands there', () => {
+  const w = createWorld(1)
+  act(w, PIP_ID, { action: 'move_to', params: { target: 'the pond' } }); character(w, PIP_ID).busyUntil = 0
+  const r = act(w, PIP_ID, { action: 'leave_note', params: { text: 'Gone fishing' } })
+  expect(r.success).toBe(true)
+  const pond = w.features.find((f) => f.kind === 'pond')!
+  const there = addInhabitant(w, 'Mo', pond.at); const away = addInhabitant(w, 'Fen', { x: pond.at.x + 5, y: pond.at.y })
+  expect(observe(w, there.id).notes).toEqual(['A note at the pond from Pip: "Gone fishing"'])
+  expect(observe(w, away.id).notes).toEqual([])
+})
+test('an empty note is refused', () => {
+  const r = act(createWorld(1), PIP_ID, { action: 'leave_note', params: { text: '  ' } })
+  expect(r).toMatchObject({ success: false, message: 'You have nothing to write.' })
+})
+test('notes beyond forty push out the oldest', () => {
+  const w = createWorld(1)
+  for (let i = 0; i < 41; i++) {
+    character(w, PIP_ID).busyUntil = 0
+    expect(act(w, PIP_ID, { action: 'leave_note', params: { text: `note ${i}` } }).success).toBe(true)
+  }
+  expect(w.notes).toHaveLength(40); expect(w.notes[0].text).toBe('note 1')
+})
+test('an inhabitant is not offered building moves and learns Pip built the town', () => {
+  const w = createWorld(1); const mo = addInhabitant(w, 'Mo', { x: 3, y: 3 })
+  const offered = names(observe(w, mo.id))
+  expect(offered).toEqual(expect.arrayContaining(['move_to', 'look_at', 'speak', 'leave_note', 'wait']))
+  expect(offered).not.toContain('start_building'); expect(observe(w, mo.id).cannot.join()).not.toContain('start_building')
+  expect(manifest('inhabitant').description).toContain('Pip, a seedling, built everything else here')
+  expect(manifest('inhabitant').moves.map((m) => m.name)).not.toContain('start_building')
+  expect(observe(w, mo.id).home).toBe('You have no home.')
+  expect(observe(w, PIP_ID).home).toBe('')
+})
+test('everyone sees who else is around', () => {
+  const w = createWorld(1); const pip = character(w, PIP_ID)
+  const mo = addInhabitant(w, 'Mo', { x: pip.at.x + 2, y: pip.at.y }); mo.asleep = true
+  expect(observe(w, PIP_ID).people).toEqual(['Mo, a few steps away, asleep'])
+  expect(observe(w, mo.id).people).toEqual(['Pip, a few steps away, idle'])
+})
+test('Pip can walk to an inhabitant by name', () => {
+  const w = createWorld(1); const mo = addInhabitant(w, 'Mo', { x: 3, y: 3 })
+  expect(act(w, PIP_ID, { action: 'move_to', params: { target: 'mo' } }).success).toBe(true)
+  expect(character(w, PIP_ID).at).toEqual(mo.at)
+})
+test('a home tells an inhabitant who built it and who lives there', () => {
+  const w = createWorld(1)
+  w.buildings.push({ id: 'b1', name: 'Burrow', purpose: 'home', about: 'a snug home', at: { x: 2, y: 2 }, workLeft: 0, workTotal: 3, startedDay: 1,
+    recipe: { footprint: 1, floors: 1, wall: 'cream', roof: 'flat', roofColour: 'red', door: true, windows: 0, sign: '', extras: [] } })
+  const mo = addInhabitant(w, 'Mo', { x: 2, y: 2 }); mo.homeId = 'b1'
+  const r = act(w, mo.id, { action: 'look_at', params: { target: 'Burrow' } })
+  expect(r.message).toBe('Burrow: a snug home. Pip built it. Home to Mo.')
+  expect(observe(w, mo.id).home).toBe('Your home is Burrow.')
+  character(w, PIP_ID).busyUntil = 0
+  expect(act(w, PIP_ID, { action: 'look_at', params: { target: 'Burrow' } }).message).toBe('Burrow: a snug home. You built it. Home to Mo.')
+})
+test('every result says who heard it and what it leaves behind', () => {
+  const r = act(createWorld(1), PIP_ID, { action: 'wait', params: {} })
+  expect(r).toMatchObject({ heardBy: [], leaves: [], created: null })
+  const refused = act(createWorld(1), PIP_ID, { action: 'fly', params: {} })
+  expect(refused).toMatchObject({ heardBy: [], leaves: [], created: null })
 })

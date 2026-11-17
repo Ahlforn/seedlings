@@ -9,7 +9,7 @@ test('the sheet gives temperament and no interests', () => {
   expect(PIP_SHEET.fears).toContain('an empty town')
 })
 test('only moves on offer are in the prompt', () => {
-  const o = observe(createWorld(1), PIP_ID); const p = systemPrompt(manifest(), o, PIP_SHEET)
+  const o = observe(createWorld(1), PIP_ID); const p = systemPrompt(manifest('origin'), o, PIP_SHEET)
   expect(p).toContain('You are Pip, a seedling')
   expect(p).toContain('Nobody tells you what to do with your day.')
   expect(p).toContain('- start_building'); expect(p).not.toContain('work_on')

@@ -5,14 +5,16 @@
  */
 
 import { COLOURS, EXTRAS, PURPOSES, ROOFS, cleanText, validateRecipe, workUnits } from '../shared/recipe.ts'
-import type { Act, Building, Character, Purpose, Tile, Urgency, World } from '../shared/types.ts'
+import type { Act, Building, Character, MemoryKind, Purpose, Tile, Urgency, World } from '../shared/types.ts'
 import { clockOf } from './clock.ts'
+import { HEARD_MAX, NOTES_MAX, distance, others, residents, withinHearing } from './people.ts'
 import { candidateSites } from './sites.ts'
 import { addEvent, character, clamp, random, urgency } from './world.ts'
 
 export type { Act } from '../shared/types.ts'
 
-export type ParamSpec = { values?: string[]; hint?: string; role?: 'words' }
+/** optional: may be left out of an act; the move then uses its own default */
+export type ParamSpec = { values?: string[]; hint?: string; role?: 'words'; optional?: boolean }
 export type MoveSpec = {
   name: string
   label: string
@@ -46,8 +48,29 @@ export type Observation = {
   available: { name: string; params: Record<string, string[]> }[]
   /** moves not on offer, each as "name: reason" */
   cannot: string[]
+  /** inhabitants: where they live, or that they have none; empty for the origin */
+  home: string
+  /** every other character, nearest first */
+  people: string[]
+  /** what was said within earshot since the last turn, oldest first */
+  heard: string[]
+  /** notes within arm's reach */
+  notes: string[]
 }
-export type ActResult = { success: boolean; message: string; moodDelta: number; minutes: number; label: string }
+export type Left = { characterId: string; text: string; kind: MemoryKind }
+export type ActResult = {
+  success: boolean
+  message: string
+  moodDelta: number
+  minutes: number
+  label: string
+  /** ids of the characters who heard this move */
+  heardBy: string[]
+  /** memories this move leaves in characters, the actor or others */
+  leaves: Left[]
+  /** id of a character this move brought to life */
+  created: string | null
+}
 
 const WALK_MINUTES_PER_TILE = 3
 const WANDER_REACH = 5
@@ -58,10 +81,14 @@ const RECENT_EVENTS = 8
 const NAME_MAX = 30
 const ABOUT_MAX = 80
 const SPEECH_MAX = 200
+const NOTE_MAX = 200
 
 type Thing = { name: string; at: Tile; describe: string; look: string }
 type Offer = { ok: true; params: Record<string, string[]> } | { ok: false; reason: string }
-type Done = { message: string; moodDelta: number; minutes: number; label: string; event: string }
+type Done = {
+  message: string; moodDelta: number; minutes: number; label: string; event: string
+  heardBy?: string[]; leaves?: Left[]; created?: string | null
+}
 type Outcome = { ok: true; done: Done } | { ok: false; reason: string; label?: string }
 type MoveDef = {
   spec: MoveSpec
@@ -69,7 +96,6 @@ type MoveDef = {
   perform(world: World, c: Character, params: Record<string, string>): Outcome
 }
 
-const distance = (a: Tile, b: Tile) => Math.abs(a.x - b.x) + Math.abs(a.y - b.y)
 /** Names match whatever their case, and with or without a leading "the" or "a": models drop both. */
 const plain = (name: string) => name.trim().toLowerCase().replace(/^(the|an|a)\s+/, '')
 const same = (a: string, b: string) => plain(a) === plain(b)
@@ -83,8 +109,15 @@ const FEATURE_LOOKS: Record<string, string> = {
   tree: 'A tree. It was here before you were.',
 }
 
+/** "Mo", "Mo and Fen", "Mo, Fen and Dot". */
+function andList(names: string[]): string {
+  return names.length <= 1 ? names.join('') : `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}`
+}
+
 /** Everything a character can name as a target. Trees share a name; the nearest one stands for all. */
-function things(world: World, from: Tile): Thing[] {
+function things(world: World, c: Character): Thing[] {
+  const from = c.at
+  const builder = world.characters.find((other) => other.tier === 'origin')?.name ?? 'Someone'
   const list: Thing[] = []
   const byDistance = [...world.features].sort((a, b) => distance(a.at, from) - distance(b.at, from))
   for (const f of byDistance) {
@@ -93,12 +126,14 @@ function things(world: World, from: Tile): Thing[] {
   }
   for (const b of world.buildings) {
     const what = b.about || PURPOSE_WORDS[b.purpose]
+    const living = residents(world, b).map((r) => r.name)
+    const who = `${c.tier === 'origin' ? 'You built it.' : `${builder} built it.`}${living.length ? ` Home to ${andList(living)}.` : ''}`
     list.push({
       name: b.name,
       at: b.at,
       describe: finished(b) ? `${b.name} (${what})` : `the building site for ${b.name}`,
       look: finished(b)
-        ? `${b.name}: ${what}. You built it.`
+        ? `${b.name}: ${what}. ${who}`
         : `The building site for ${b.name}. ${b.workLeft} of ${b.workTotal} parts of the work are still to do.`,
     })
   }
@@ -134,24 +169,30 @@ function uniqueBuildingName(world: World, wanted: string, purpose: Purpose): str
 }
 
 const foodSpots = (world: World, c: Character) =>
-  things(world, c.at).filter(
+  things(world, c).filter(
     (t) => world.features.some((f) => f.kind === 'berry_bush' && f.name === t.name) ||
       world.buildings.some((b) => b.name === t.name && finished(b) && b.purpose === 'food'),
   )
 const sleepSpots = (world: World, c: Character) =>
-  things(world, c.at).filter(
+  things(world, c).filter(
     (t) => world.features.some((f) => f.kind === 'hollow_tree' && f.name === t.name) ||
       world.buildings.some((b) => b.name === t.name && finished(b) && b.purpose === 'home'),
   )
+
+/** Places, things and other characters a character can walk to. */
+const destinations = (world: World, c: Character): { name: string; at: Tile }[] => [
+  ...things(world, c),
+  ...others(world, c).map((other) => ({ name: other.name, at: other.at })),
+]
 
 const MOVES: MoveDef[] = [
   {
     spec: {
       name: 'move_to', label: 'walking somewhere', tier: 'inhabitant',
-      description: 'Walk to a place or thing, or wander with nowhere in mind.',
-      params: { target: { hint: 'wander, or a place from the list' } },
+      description: 'Walk to a place, a thing or someone, or wander with nowhere in mind.',
+      params: { target: { hint: 'wander, or a place or someone from the list' } },
     },
-    offer: (world, c) => ({ ok: true, params: { target: ['wander', ...things(world, c.at).map((t) => t.name)] } }),
+    offer: (world, c) => ({ ok: true, params: { target: ['wander', ...destinations(world, c).map((t) => t.name)] } }),
     perform(world, c, params) {
       if (same(params.target ?? '', 'wander')) {
         const to = {
@@ -161,7 +202,7 @@ const MOVES: MoveDef[] = [
         const minutes = Math.max(walk(c, to), WALK_MINUTES_PER_TILE)
         return { ok: true, done: { message: 'You wander a little way and stop somewhere new.', moodDelta: 0, minutes, label: 'wandering', event: `${c.name} wandered about` } }
       }
-      const thing = find(things(world, c.at), params.target)!
+      const thing = find(destinations(world, c), params.target)!
       const minutes = walk(c, thing.at)
       return { ok: true, done: { message: `You walk to ${thing.name}.`, moodDelta: 0, minutes, label: `walking to ${thing.name}`, event: `${c.name} walked to ${thing.name}` } }
     },
@@ -208,9 +249,9 @@ const MOVES: MoveDef[] = [
       description: 'Go and look closely at a place or thing.',
       params: { target: { hint: 'a place or thing from the list' } },
     },
-    offer: (world, c) => ({ ok: true, params: { target: things(world, c.at).map((t) => t.name) } }),
+    offer: (world, c) => ({ ok: true, params: { target: things(world, c).map((t) => t.name) } }),
     perform(world, c, params) {
-      const thing = find(things(world, c.at), params.target)!
+      const thing = find(things(world, c), params.target)!
       const minutes = walk(c, thing.at) + 5
       return { ok: true, done: { message: thing.look, moodDelta: 0, minutes, label: `looking at ${thing.name}`, event: `${c.name} looked closely at ${thing.name}` } }
     },
@@ -332,16 +373,51 @@ const MOVES: MoveDef[] = [
   {
     spec: {
       name: 'speak', label: 'saying something out loud', tier: 'inhabitant',
-      description: 'Say something out loud, to nobody in particular or to whoever is near.',
-      params: { text: { role: 'words', hint: 'what you say' } },
+      description: 'Say something out loud, to someone near or to whoever is listening. Everyone near enough hears it.',
+      params: {
+        to: { hint: 'anyone, or someone near enough to hear you', optional: true },
+        text: { role: 'words', hint: 'what you say' },
+      },
     },
-    offer: () => ({ ok: true, params: {} }),
+    offer: (world, c) => ({ ok: true, params: { to: ['anyone', ...withinHearing(world, c).map((other) => other.name)] } }),
     perform(world, c, params) {
       const text = cleanText(params.text ?? '', SPEECH_MAX)
       if (text === '') return { ok: false, reason: 'You open your mouth but have nothing to say.' }
+      const hearers = withinHearing(world, c)
+      const to = params.to === undefined || same(params.to, 'anyone') ? null : find(hearers, params.to)!
       c.said = text
       c.saidAt = world.minutes
-      return { ok: true, done: { message: `You say: "${text}"`, moodDelta: 0, minutes: 2, label: 'saying something out loud', event: `${c.name} said: "${text}"` } }
+      const leaves: Left[] = []
+      for (const hearer of hearers) {
+        const toYou = hearer === to
+        hearer.heard.push({ from: c.name, text, minute: world.minutes, toYou })
+        if (hearer.heard.length > HEARD_MAX) hearer.heard.splice(0, hearer.heard.length - HEARD_MAX)
+        leaves.push({ characterId: hearer.id, text: `${c.name} said${toYou ? ' to me' : ''}: "${text}"`, kind: 'person' })
+      }
+      return {
+        ok: true,
+        done: {
+          message: `You say${to ? ` to ${to.name}` : ''}: "${text}"`, moodDelta: 0, minutes: 2, label: 'saying something out loud',
+          event: `${c.name} said${to ? ` to ${to.name}` : ''}: "${text}"`,
+          heardBy: hearers.map((hearer) => hearer.id), leaves,
+        },
+      }
+    },
+  },
+  {
+    spec: {
+      name: 'leave_note', label: 'leaving a note', tier: 'inhabitant',
+      description: 'Write a short note and leave it where you are, for whoever comes by.',
+      params: { text: { role: 'words', hint: 'what the note says' } },
+    },
+    offer: () => ({ ok: true, params: {} }),
+    perform(world, c, params) {
+      const text = cleanText(params.text ?? '', NOTE_MAX)
+      if (text === '') return { ok: false, reason: 'You have nothing to write.' }
+      const place = things(world, c).find((t) => distance(t.at, c.at) <= 1)?.name ?? 'the open ground'
+      world.notes.push({ id: `n${world.nextId++}`, at: { x: c.at.x, y: c.at.y }, place, by: c.name, text, minute: world.minutes })
+      if (world.notes.length > NOTES_MAX) world.notes.splice(0, world.notes.length - NOTES_MAX)
+      return { ok: true, done: { message: `You leave a note at ${place}.`, moodDelta: 0, minutes: 5, label: 'leaving a note', event: `${c.name} left a note at ${place}` } }
     },
   },
   {
@@ -355,24 +431,25 @@ const MOVES: MoveDef[] = [
   },
 ]
 
-export function manifest(): Manifest {
+const allows = (tier: Character['tier'], move: MoveDef) => move.spec.tier === 'inhabitant' || tier === 'origin'
+const tierAllows = (c: Character, move: MoveDef) => allows(c.tier, move)
+
+export function manifest(tier: Character['tier']): Manifest {
+  const origin = tier === 'origin'
   return {
     protocol: 'seedlings/1',
     name: 'the plot',
-    description:
-      'A wide green plot of land. It was empty when you arrived: a berry bush, a hollow tree, a pond and a few trees. Anything else here, you built.',
+    description: origin
+      ? 'A wide green plot of land. It was empty when you arrived: a berry bush, a hollow tree, a pond and a few trees. Anything else here, you built.'
+      : 'A small town on a wide green plot: a berry bush, a hollow tree, a pond and a few trees. Pip, a seedling, built everything else here, and brought you here.',
     glossary: [
-      'a building site is a building you have started and not finished',
+      origin ? 'a building site is a building you have started and not finished' : 'a building site is a building Pip has started and not finished',
       'a home is somewhere to sleep, and a food place is somewhere to eat',
       'the hollow tree is where you can sleep until there is a home',
     ],
     stance: 'Nobody tells you what to do with your day.',
-    moves: MOVES.map((move) => move.spec),
+    moves: MOVES.filter((move) => allows(tier, move)).map((move) => move.spec),
   }
-}
-
-function tierAllows(c: Character, move: MoveDef): boolean {
-  return move.spec.tier === 'inhabitant' || c.tier === 'origin'
 }
 
 export function observe(world: World, characterId: string): Observation {
@@ -390,7 +467,15 @@ export function observe(world: World, characterId: string): Observation {
     else cannot.push(`${move.spec.name}: ${offer.reason}`)
   }
 
-  const around = things(world, c.at).map((t) => ({ text: t.describe, tiles: distance(t.at, c.at) }))
+  const homeOf = c.homeId === null ? undefined : world.buildings.find((b) => b.id === c.homeId)
+  const home = c.tier === 'origin' ? '' : homeOf ? `Your home is ${homeOf.name}.` : 'You have no home.'
+  const people = others(world, c)
+    .sort((a, b) => distance(a.at, c.at) - distance(b.at, c.at))
+    .map((other) => `${other.name}, ${away(distance(other.at, c.at))}, ${other.asleep ? 'asleep' : other.doing}`)
+  const heard = c.heard.map((h) => `${h.from} said${h.toYou ? ' to you' : ''}: "${h.text}"`)
+  const notes = world.notes.filter((n) => distance(n.at, c.at) <= 1).map((n) => `A note at ${n.place} from ${n.by}: "${n.text}"`)
+
+  const around = things(world, c).map((t) => ({ text: t.describe, tiles: distance(t.at, c.at) }))
   const near = around.filter((t) => t.tiles <= 1).map((t) => t.text)
   const far = around.filter((t) => t.tiles > 1).map((t) => `${t.text}, ${away(t.tiles)}`)
   const room = `Places and things: ${far.join('; ') || 'nothing further off'}. In arm's reach: ${near.join(', ') || 'nothing'}.`
@@ -414,13 +499,17 @@ export function observe(world: World, characterId: string): Observation {
     recentEvents: world.events.slice(-RECENT_EVENTS).map((e) => e.text),
     available,
     cannot,
+    home,
+    people,
+    heard,
+    notes,
   }
 }
 
 function refuse(world: World, c: Character, message: string, label: string): ActResult {
   c.body.mood = clamp(c.body.mood + REFUSAL_MOOD, -1, 1)
   addEvent(world, `${c.name} tried ${label} and it did not work`)
-  return { success: false, message, moodDelta: REFUSAL_MOOD, minutes: 0, label }
+  return { success: false, message, moodDelta: REFUSAL_MOOD, minutes: 0, label, heardBy: [], leaves: [], created: null }
 }
 
 /** Carries out a move, or refuses it in plain words. Never throws for anything a mind can send. */
@@ -439,6 +528,7 @@ export function act(world: World, characterId: string, move: Act): ActResult {
   if (!offer.ok) return refuse(world, c, `You cannot do that right now: ${offer.reason}.`, label)
   for (const [key, choices] of Object.entries(offer.params)) {
     const given = params[key]
+    if (given === undefined && def.spec.params[key]?.optional) continue
     if (given === undefined || !choices.some((choice) => same(choice, String(given)))) {
       const shown = given === undefined ? 'nothing' : `"${cleanText(String(given), 40)}"`
       return refuse(world, c, `For ${key} you gave ${shown}. Choose one of: ${choices.join(', ') || 'nothing is available'}.`, label)
@@ -453,5 +543,8 @@ export function act(world: World, characterId: string, move: Act): ActResult {
   c.doing = done.label
   c.body.mood = clamp(c.body.mood + done.moodDelta, -1, 1)
   addEvent(world, done.event)
-  return { success: true, message: done.message, moodDelta: done.moodDelta, minutes: done.minutes, label: done.label }
+  return {
+    success: true, message: done.message, moodDelta: done.moodDelta, minutes: done.minutes, label: done.label,
+    heardBy: done.heardBy ?? [], leaves: done.leaves ?? [], created: done.created ?? null,
+  }
 }

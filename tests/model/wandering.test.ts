@@ -8,7 +8,7 @@ import { advance, character, createWorld, PIP_ID } from '../../src/world/world.t
 
 const ask = async (client: ReturnType<typeof wanderingClient>, w: ReturnType<typeof createWorld>) => {
   const o = observe(w, PIP_ID)
-  return client.complete({ model: 'fake', system: systemPrompt(manifest(), o, PIP_SHEET), user: whatISee(o, [], [], []), sessionId: 'pip', maxTokens: 400 })
+  return client.complete({ model: 'fake', system: systemPrompt(manifest('origin'), o, PIP_SHEET), user: whatISee(o, [], [], []), sessionId: 'pip', maxTokens: 400 })
 }
 
 test('the wandering stand-in only picks moves the world accepts, costs nothing, and gets a building built', async () => {

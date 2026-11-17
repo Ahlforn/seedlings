@@ -80,7 +80,7 @@ export async function runTurn(deps: TownDeps, characterId: string): Promise<Turn
 
   const observation = observe(world, characterId)
   const recalled = recall(store.memories(characterId), observation, MEMORIES_RECALLED)
-  const system = systemPrompt(manifest(), observation, PIP_SHEET)
+  const system = systemPrompt(manifest(c.tier), observation, PIP_SHEET)
   const user = whatISee(observation, recalled, store.beliefs(characterId), store.openMindItems(characterId).slice(0, MIND_ITEMS_SHOWN))
 
   // Written before asking: if the database cannot be written, the model is never called,
