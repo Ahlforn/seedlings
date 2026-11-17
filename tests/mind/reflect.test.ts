@@ -2,7 +2,7 @@ import { readReflection, shouldReflect, reflectionPrompt } from '../../src/mind/
 import { PIP_SHEET } from '../../src/mind/sheet.ts'
 
 test('when to reflect', () => {
-  const base = { minutesSinceLast: 0, turnsSinceLast: 0, buildingFinished: false, goingToSleep: false }
+  const base = { minutesSinceLast: 0, turnsSinceLast: 0, buildingFinished: false, goingToSleep: false, everyFewHours: true }
   expect(shouldReflect(base)).toBe(false)
   expect(shouldReflect({ ...base, goingToSleep: true, turnsSinceLast: 1 })).toBe(true)
   expect(shouldReflect({ ...base, buildingFinished: true })).toBe(true)
@@ -25,4 +25,10 @@ test('the reflection prompt shows each turn and the open items with their ids', 
   expect(p.user).toContain('10:30, day 1'); expect(p.user).toContain('peckish')
   expect(p.user).toContain('eating at the berry bush'); expect(p.user).toContain('You eat until you are full.')
   expect(p.user).toContain('[7] want: a roof')
+})
+
+test('an inhabitant writes only at the end of the day', () => {
+  expect(shouldReflect({ minutesSinceLast: 600, turnsSinceLast: 9, buildingFinished: true, goingToSleep: false, everyFewHours: false })).toBe(false)
+  expect(shouldReflect({ minutesSinceLast: 10, turnsSinceLast: 1, buildingFinished: false, goingToSleep: true, everyFewHours: false })).toBe(true)
+  expect(shouldReflect({ minutesSinceLast: 10, turnsSinceLast: 0, buildingFinished: false, goingToSleep: true, everyFewHours: false })).toBe(false)
 })

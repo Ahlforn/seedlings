@@ -77,6 +77,7 @@ export function createScheduler(deps: TownDeps): Scheduler {
       turnsSinceLast: turnsSinceReflection(store, PIP_ID),
       buildingFinished: finishedSinceDiary,
       goingToSleep: endOfDay,
+      everyFewHours: true,
     })
     if (!due || !budget.status().canThink) return
 

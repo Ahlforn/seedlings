@@ -39,3 +39,8 @@ test('reasoning effort: low by default, may be turned up or left to the provider
   expect(loadConfig({ ...base, SEEDLINGS_REASONING_EFFORT: '' }).reasoningEffort).toBe('')
   expect(() => loadConfig({ ...base, SEEDLINGS_REASONING_EFFORT: 'lots' })).toThrow('SEEDLINGS_REASONING_EFFORT')
 })
+
+test('the inhabitant model is a setting', () => {
+  expect(loadConfig({ SEEDLINGS_PASSWORD: 'p', SEEDLINGS_FAKE_MODEL: '1' }).inhabitantModel).toBe('deepseek-v4.1-flash')
+  expect(loadConfig({ SEEDLINGS_PASSWORD: 'p', SEEDLINGS_FAKE_MODEL: '1', SEEDLINGS_INHABITANT_MODEL: 'tiny' }).inhabitantModel).toBe('tiny')
+})

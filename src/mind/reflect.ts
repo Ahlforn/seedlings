@@ -24,8 +24,11 @@ export function shouldReflect(i: {
   turnsSinceLast: number
   buildingFinished: boolean
   goingToSleep: boolean
+  /** false for a mind that writes only at the end of its day */
+  everyFewHours: boolean
 }): boolean {
   if (i.goingToSleep) return i.turnsSinceLast >= 1
+  if (!i.everyFewHours) return false
   if (i.buildingFinished) return true
   return i.minutesSinceLast >= 240 && i.turnsSinceLast >= 3
 }

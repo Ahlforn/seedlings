@@ -53,6 +53,7 @@ All settings are environment variables, read from `.env` when present.
 | `SEEDLINGS_DB` | `./data/seedlings.db` | Where the town is stored |
 | `SEEDLINGS_BASE_URL` | OpenCode Go | Any OpenAI-shaped chat endpoint |
 | `SEEDLINGS_PIP_MODEL` | `glm-5.2` | The model that drives Pip |
+| `SEEDLINGS_INHABITANT_MODEL` | `deepseek-v4.1-flash` | The small model that drives the inhabitants |
 | `SEEDLINGS_JSON_MODE` | `1` | Set to `0` if the provider rejects JSON mode |
 | `SEEDLINGS_MAX_TOKENS` | `8000` | Room for one reply. A model that reasons first uses this for its reasoning too |
 | `SEEDLINGS_REASONING_EFFORT` | `low` | How long a reasoning model thinks before answering: `low`, `medium`, `high`, or empty to leave it to the provider |

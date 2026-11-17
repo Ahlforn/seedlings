@@ -40,3 +40,14 @@ test('new memories still surface when old ones have been recalled for weeks', ()
   expect(got.map(m => m.id)).toContain(7)
   expect(got).toHaveLength(5)
 })
+
+test('a memory about someone who is around comes to mind', () => {
+  const o = { ...observe(createWorld(1), PIP_ID), people: ['Bramble, a few steps away, idle'] }
+  const got = recall([mem(1, 'the sky was grey'), mem(2, 'Bramble hums when building'), mem(3, 'cold water')], o, 1)
+  expect(got.map(m => m.id)).toEqual([2])
+})
+test('what was heard and notes nearby bring memories to mind too', () => {
+  const o = { ...observe(createWorld(1), PIP_ID), heard: ['Mo said: "the lantern is lovely"'], notes: ['A note at the pond from Mo: "fishing tomorrow"'] }
+  const got = recall([mem(1, 'the sky was grey'), mem(2, 'my lantern'), mem(3, 'fishing is boring'), mem(4, 'quiet day')], o, 3)
+  expect(got.slice(0, 2).map(m => m.id).sort()).toEqual([2, 3])   // the third place goes to the newest
+})

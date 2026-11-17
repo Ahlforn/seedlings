@@ -7,6 +7,7 @@ export type Config = {
   baseUrl: string
   apiKey: string
   pipModel: string
+  inhabitantModel: string
   userAgent: string
   jsonMode: boolean
   /** Room for one reply. For a model that reasons first, the reasoning counts against this too. */
@@ -71,6 +72,7 @@ export function loadConfig(env: Env): Config {
     baseUrl: env.SEEDLINGS_BASE_URL || 'https://opencode.ai/inference/go/openai/v1',
     apiKey: fakeModel ? (env.SEEDLINGS_API_KEY ?? '') : required(env, 'SEEDLINGS_API_KEY'),
     pipModel: env.SEEDLINGS_PIP_MODEL || 'glm-5.2',
+    inhabitantModel: env.SEEDLINGS_INHABITANT_MODEL || 'deepseek-v4.1-flash',
     userAgent: 'seedlings-town/0.1',
     jsonMode: (env.SEEDLINGS_JSON_MODE ?? '1') !== '0',
     maxTokens: wholeBetween(env, 'SEEDLINGS_MAX_TOKENS', 8000, 1, 100_000),

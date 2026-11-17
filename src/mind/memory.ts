@@ -17,7 +17,7 @@ const newestFirst = (a: Memory, b: Memory) => b.sinceMinutes - a.sinceMinutes ||
  * and some places always go to the most recent memories, so new ones get a chance to take hold.
  */
 export function recall(memories: Memory[], o: Observation, n: number): Memory[] {
-  const scene = words([o.room, o.body, ...o.recentEvents].join(' '))
+  const scene = words([o.room, o.body, ...o.recentEvents, ...o.people, ...o.heard, ...o.notes].join(' '))
   const scored = memories.map((memory) => {
     let shared = 0
     for (const word of words(memory.text)) if (scene.has(word)) shared++
