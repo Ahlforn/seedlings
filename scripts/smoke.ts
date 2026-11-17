@@ -11,12 +11,15 @@ const reply = await client.complete({
   system: 'Reply with JSON only.',
   user: '{"say":"hi"} — repeat this back.',
   sessionId: 'smoke',
-  maxTokens: 100,
+  maxTokens: config.maxTokens,
 })
 
 console.log('model:', config.pipModel)
 console.log('reply:', reply.text)
 console.log('usage:', reply.usage)
+if (reply.finishReason === 'length') {
+  console.log('\nWARNING: the reply was cut off by the token limit. Raise SEEDLINGS_MAX_TOKENS.')
+}
 if (reply.usage.billingSource === 'balance') {
   console.log('\nWARNING: this request was charged to your balance. Turn Extra Usage off on the Go page before running the town.')
 }

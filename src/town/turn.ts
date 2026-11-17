@@ -8,6 +8,7 @@ import { beliefFor, recall, tidyMemories } from '../mind/memory.ts'
 import { systemPrompt, whatISee } from '../mind/prompt.ts'
 import { readReflection, reflectionPrompt } from '../mind/reflect.ts'
 import { PIP_SHEET } from '../mind/sheet.ts'
+import { ModelError } from '../model/client.ts'
 import type { ModelClient, ModelReply } from '../model/client.ts'
 import type { Act, World } from '../shared/types.ts'
 import type { Store } from '../store/store.ts'
@@ -28,8 +29,6 @@ export type TurnOutcome = { turnId: number; results: ActResult[]; wentToSleep: b
 
 const MEMORIES_RECALLED = 5
 const MIND_ITEMS_SHOWN = 3
-const TURN_TOKENS = 400
-const REFLECTION_TOKENS = 500
 const MEMORY_CAP = 200
 const DAY_MINUTES = 1440
 /** A reflection looks back over at most this many turns, so its prompt cannot grow without bound. */
@@ -48,6 +47,12 @@ function reflectedUpTo(store: Store, characterId: string): number {
 /** How many turns have happened that no reflection has looked at yet. */
 export function turnsSinceReflection(store: Store, characterId: string): number {
   return store.turnsBetween(characterId, reflectedUpTo(store, characterId) + 1, store.lastTurnId(characterId)).length
+}
+
+/** A reply cut off by the token limit cannot be used, and asking again would only cut it off again. */
+function refuseIfCutOff(reply: ModelReply): void {
+  if (reply.finishReason !== 'length') return
+  throw new ModelError('The model ran out of room before it finished answering. Raise SEEDLINGS_MAX_TOKENS.')
 }
 
 const finishedCount = (world: World) => world.buildings.filter((b) => b.workLeft === 0).length
@@ -87,8 +92,9 @@ export async function runTurn(deps: TownDeps, characterId: string): Promise<Turn
   for (let attempt = 0; attempt < 2 && !decision; attempt++) {
     // The first reply may have used up the budget, or been charged to balance: then there is no second ask.
     if (attempt > 0 && !budget.status().canThink) break
-    const reply = await model.complete({ model: config.pipModel, system, user, sessionId: characterId, maxTokens: TURN_TOKENS })
+    const reply = await model.complete({ model: config.pipModel, system, user, sessionId: characterId, maxTokens: config.maxTokens })
     budget.record(characterId, reply.usage)
+    refuseIfCutOff(reply)
     replies.push(reply)
     decision = readDecision(reply.text)
   }
@@ -152,8 +158,9 @@ export async function runReflection(deps: TownDeps, characterId: string, endOfDa
   const open = store.openMindItems(characterId)
   store.setFlag(CALL_FLAG, String(deps.now()))
   const prompt = reflectionPrompt(PIP_SHEET, clockOf(world.minutes).label, turns, open, endOfDay)
-  const reply = await model.complete({ model: config.pipModel, system: prompt.system, user: prompt.user, sessionId: characterId, maxTokens: REFLECTION_TOKENS })
+  const reply = await model.complete({ model: config.pipModel, system: prompt.system, user: prompt.user, sessionId: characterId, maxTokens: config.maxTokens })
   budget.record(characterId, reply.usage)
+  refuseIfCutOff(reply)
   const reflection = readReflection(reply.text)
   store.addTurn({
     characterId,

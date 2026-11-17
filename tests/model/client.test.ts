@@ -21,7 +21,7 @@ test('sends the right request and identifies itself', async () => {
   const body = JSON.parse(seen!.init.body as string)
   expect(body).toMatchObject({ model: 'glm-5.2', max_tokens: 300, response_format: { type: 'json_object' } })
   expect(body.messages.map((m: { role: string }) => m.role)).toEqual(['system', 'user'])
-  expect(r).toEqual({ text: '{"do":[]}', usage: { allowance: 0.004, inputTokens: 12, outputTokens: 3, billingSource: 'go' } })
+  expect(r).toEqual({ text: '{"do":[]}', finishReason: null, usage: { allowance: 0.004, inputTokens: 12, outputTokens: 3, billingSource: 'go' } })
 })
 test('another provider without the opencode block still works', async () => {
   const c = openAiClient({ baseUrl: 'https://x/v1', apiKey: 'K', userAgent: 'u', jsonMode: false,
@@ -59,4 +59,13 @@ test.each([[Number.NaN], [-1], ['12'], [Infinity]])('an allowance of %s is treat
   const f = (async () => new Response(body)) as unknown as typeof fetch
   const c = openAiClient({ baseUrl: 'https://x/v1', apiKey: 'K', userAgent: 'u', jsonMode: false, fetch: f })
   expect((await c.complete(req)).usage).toEqual({ allowance: null, inputTokens: 0, outputTokens: 0, billingSource: 'go' })
+})
+
+// Found on the first live run: glm-5.2 reasons before it answers, and the reasoning counts against max_tokens.
+test('a reply cut off by the token limit comes back with what it cost, and says it was cut off', async () => {
+  const f = (async () => new Response(JSON.stringify({ choices: [{ finish_reason: 'length', message: { role: 'assistant', content: null, reasoning_content: 'thinking…' } }],
+    usage: { prompt_tokens: 1043, completion_tokens: 400, opencode: { allowance: 0.0032, billing_source: 'go' } } }))) as unknown as typeof fetch
+  const c = openAiClient({ baseUrl: 'https://x/v1', apiKey: 'K', userAgent: 'u', jsonMode: true, fetch: f })
+  expect(await c.complete(req)).toEqual({ text: '', finishReason: 'length',
+    usage: { allowance: 0.0032, inputTokens: 1043, outputTokens: 400, billingSource: 'go' } })
 })

@@ -8,7 +8,12 @@ export type ModelUsage = {
   outputTokens: number
   billingSource: string | null
 }
-export type ModelReply = { text: string; usage: ModelUsage }
+export type ModelReply = {
+  text: string
+  usage: ModelUsage
+  /** 'length' means the reply was cut off by the token limit. Null when the provider does not say. */
+  finishReason?: string | null
+}
 
 export interface ModelClient {
   complete(req: ModelRequest): Promise<ModelReply>
@@ -27,7 +32,7 @@ export class ModelError extends Error {
 }
 
 type ChatResponse = {
-  choices?: { message?: { content?: unknown } }[]
+  choices?: { finish_reason?: unknown; message?: { content?: unknown } }[]
   usage?: {
     prompt_tokens?: unknown
     completion_tokens?: unknown
@@ -92,11 +97,15 @@ export function openAiClient(opts: {
       } catch {
         throw new ModelError('The model answered with something that is not JSON.', response.status)
       }
-      const text = data.choices?.[0]?.message?.content
-      if (typeof text !== 'string') throw new ModelError('The model answered with no content.', response.status)
+      const choice = data.choices?.[0]
+      if (!choice) throw new ModelError('The model answered with no content.', response.status)
+      // A model that reasons first can spend its whole token limit before answering. The content is
+      // then empty, but the request was still paid for, so it is returned with its usage, not thrown.
+      const content = choice.message?.content
 
       return {
-        text,
+        text: typeof content === 'string' ? content : '',
+        finishReason: typeof choice.finish_reason === 'string' ? choice.finish_reason : null,
         usage: {
           allowance: amount(data.usage?.opencode?.allowance),
           inputTokens: amount(data.usage?.prompt_tokens) ?? 0,

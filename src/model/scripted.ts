@@ -22,6 +22,7 @@ export function scriptedClient(replies: Scripted[], loop = false): ModelClient &
       return {
         text: typeof reply === 'function' ? reply(req) : reply,
         usage: { allowance: 0.01, inputTokens: 100, outputTokens: 20, billingSource: 'go' },
+        finishReason: 'stop',
       }
     },
   }

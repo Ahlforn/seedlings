@@ -112,3 +112,23 @@ test('I4: nothing is asked of the model when the database cannot be written', as
   await expect(runTurn({ ...d, store: broken }, PIP_ID)).rejects.toThrow('disk full')
   expect(d.model.requests).toHaveLength(0)
 })
+
+// ---- First live run ----
+const cutOff = () => ({ requests: [] as { maxTokens: number }[], async complete(req: { maxTokens: number }) { this.requests.push(req)
+  return { text: '{"', finishReason: 'length', usage: { allowance: 0.0032, inputTokens: 1043, outputTokens: 400, billingSource: 'go' } } } })
+
+test('a reply cut off by the token limit is paid for, reported, and not asked for again', async () => {
+  const d = deps([]); const model = cutOff()
+  await expect(runTurn({ ...d, model }, PIP_ID)).rejects.toThrow('SEEDLINGS_MAX_TOKENS')
+  expect(model.requests).toHaveLength(1)
+  expect(d.store.spentBetween(0, d.now() + 1)).toBeCloseTo(0.0032)
+})
+test('a diary reply cut off by the token limit is paid for and reported', async () => {
+  const d = deps([eat]); await runTurn(d, PIP_ID)
+  await expect(runReflection({ ...d, model: cutOff() }, PIP_ID, false)).rejects.toThrow('SEEDLINGS_MAX_TOKENS')
+  expect(d.store.spentBetween(0, d.now() + 1)).toBeCloseTo(0.0132)
+})
+test('the model is given the configured room to think and answer', async () => {
+  const d = deps([eat]); await runTurn({ ...d, config: { ...d.config, maxTokens: 1234 } }, PIP_ID)
+  expect(d.model.requests[0].maxTokens).toBe(1234)
+})
