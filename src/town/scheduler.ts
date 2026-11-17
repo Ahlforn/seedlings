@@ -44,6 +44,9 @@ const EVENING_HOUR = 18
 const nextThinkFlag = (id: string) => (id === PIP_ID ? 'next_think_at' : `next_think_at:${id}`)
 const dayEndedFlag = (id: string) => `day_ended:${id}`
 
+/** An outcome in which nothing happened, for revisiting a diary that is owed. */
+const NOTHING: TurnOutcome = { turnId: 0, results: [], wentToSleep: false, finishedBuilding: false, heardBy: [], addressed: null, created: null }
+
 const message = (error: unknown) => (error instanceof Error ? error.message : String(error))
 
 /** How long to hold off after a failure. A provider's Retry-After can lengthen the wait but never shorten or unbound it. */
@@ -61,6 +64,8 @@ type Mind = {
   reflectFailures: number
   finishedSinceDiary: boolean
   reflectTrouble: string
+  /** the in-world day whose bedtime diary is still to be written, or null */
+  owedDay: string | null
 }
 /** One tier's model: when it fails, everyone on it waits. */
 type Line = { failures: number; waitUntil: number; trouble: string }
@@ -89,6 +94,7 @@ export function createScheduler(deps: TownDeps): Scheduler {
         reflectFailures: 0,
         finishedSinceDiary: false,
         reflectTrouble: '',
+        owedDay: null,
       }
       minds.set(id, mind)
     }
@@ -115,17 +121,22 @@ export function createScheduler(deps: TownDeps): Scheduler {
     if (soonest < mind.nextThinkAt) thinkNext(c.id, soonest)
   }
 
-  /** Writes the diary when it is due. A failure here never touches the pace of thinking. */
+  /**
+   * Writes the diary when it is due. A failure here never touches the pace of thinking. A bedtime entry
+   * that cannot be written at bedtime (no budget left, the model failing) is owed, and tried again later.
+   */
   async function reflectIfDue(c: Character, outcome: TurnOutcome): Promise<void> {
     const mind = mindOf(c.id)
     if (outcome.finishedBuilding) mind.finishedSinceDiary = true
-    if (deps.now() < mind.nextReflectAt) return
 
     const clock = clockOf(world.minutes)
     const day = String(clockOf(Math.max(0, world.minutes - DAY_STARTS_AT)).day)
     const evening = clock.night || clock.hour >= EVENING_HOUR
     // Only the first sleep of the evening ends the day; naps and going back to sleep do not.
-    const endOfDay = outcome.wentToSleep && evening && store.getFlag(dayEndedFlag(c.id)) !== day
+    if (outcome.wentToSleep && evening && store.getFlag(dayEndedFlag(c.id)) !== day) mind.owedDay = day
+    if (deps.now() < mind.nextReflectAt || deps.now() < lines[c.tier].waitUntil) return
+
+    const endOfDay = mind.owedDay !== null
     const last = store.diary(c.id, 1)[0]
     const due = shouldReflect({
       minutesSinceLast: world.minutes - (last?.worldMinutes ?? START_MINUTES),
@@ -139,7 +150,8 @@ export function createScheduler(deps: TownDeps): Scheduler {
     try {
       await runReflection(deps, c.id, endOfDay)
       mind.finishedSinceDiary = false
-      if (endOfDay) store.setFlag(dayEndedFlag(c.id), day)
+      if (mind.owedDay !== null) store.setFlag(dayEndedFlag(c.id), mind.owedDay)
+      mind.owedDay = null
       mind.reflectFailures = 0
       mind.reflectTrouble = ''
     } catch (error) {
@@ -200,6 +212,9 @@ export function createScheduler(deps: TownDeps): Scheduler {
         const next = waiting.reduce((best, c) => (mindOf(c.id).nextThinkAt < mindOf(best.id).nextThinkAt ? c : best))
         await think(next)
       }
+      // One owed bedtime diary per step, asleep or not.
+      const owing = world.characters.find((c) => mindOf(c.id).owedDay !== null)
+      if (owing) await reflectIfDue(owing, NOTHING)
       store.saveWorld(world)
       saveTrouble = ''
     } catch (error) {

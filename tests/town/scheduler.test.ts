@@ -277,3 +277,53 @@ test('someone who only overhears is not hurried', async () => {
   expect(model.requests.filter((r) => r.sessionId === PIP_ID).length).toBeGreaterThanOrEqual(2)
   expect(fenTurns()).toBe(1)
 })
+
+// ---- Final review #3: a bedtime diary that cannot be written then is owed, not lost ----
+const isDiary = (r: ModelRequest) => r.system.includes('You keep a diary')
+const bedtime = (d: ReturnType<typeof deps>) => {
+  const pip = character(d.world, PIP_ID); pip.asleep = true; pip.body.tiredness = 0.9
+  d.world.minutes = 22 * 60
+}
+test('a bedtime diary missed because the share was spent is written once the new day begins', async () => {
+  const d = deps([]); const [mo] = withInhabitants(d, 1); bedtime(d); mo.body.tiredness = 0.8
+  for (let i = 0; i < 99; i++) d.store.addSpend(d.clock.t, mo.id, 0.01)   // room for exactly one more inhabitant call today
+  const model = byWho({ [mo.id]: [sleepReply, diaryReply] }); const s = createScheduler({ ...d, model })
+  await s.step(5000)
+  expect(model.requests.filter(isDiary)).toHaveLength(0)
+  expect(mo.asleep).toBe(true)
+  await tick(d, s, 86_400_000 - (d.clock.t % 86_400_000) + 1000)          // just past midnight UTC
+  expect(model.requests.filter(isDiary)).toHaveLength(1)
+  expect(model.requests.filter(isDiary)[0].user).toContain('The day is ending')
+  expect(d.store.diary(mo.id, 5)).toHaveLength(1)
+  await tick(d, s); expect(model.requests.filter(isDiary)).toHaveLength(1) // and only once
+})
+test('a bedtime diary whose call failed is tried again', async () => {
+  const d = deps([]); const [mo] = withInhabitants(d, 1); bedtime(d); mo.body.tiredness = 0.8
+  const model = byWho({ [mo.id]: [sleepReply, diaryReply] }); let failed = false
+  const flaky = { requests: model.requests, async complete(req: ModelRequest) {
+    if (isDiary(req) && !failed) { failed = true; model.requests.push(req); throw new ModelError('busy', 503) }
+    return model.complete(req) } }
+  const s = createScheduler({ ...d, model: flaky })
+  await s.step(5000)
+  expect(model.requests.filter(isDiary)).toHaveLength(1); expect(d.store.diary(mo.id, 5)).toHaveLength(0)
+  await tick(d, s, 61_000)
+  expect(d.store.diary(mo.id, 5)).toHaveLength(1)
+})
+test('no diary is asked of a model the tier is backing off from', async () => {
+  const d = deps([]); const [mo, fen] = withInhabitants(d, 2); bedtime(d)
+  const night = JSON.stringify({ consider: 'late', do: [{ action: 'speak', params: { text: 'Night.' } }, { action: 'sleep', params: { target: 'the hollow tree' } }], because: '.' })
+  mo.body.tiredness = 0.8; let fenFailed = false
+  const model = scriptedClient([(req: ModelRequest) => {
+    if (req.sessionId === fen.id && !isDiary(req) && !fenFailed) { fenFailed = true; throw new ModelError('down') }
+    if (isDiary(req)) return diaryReply
+    return req.sessionId === mo.id ? night : wait
+  }], true)
+  const s = createScheduler({ ...d, model })
+  await s.step(5000)                                                     // Mo: "Night." then sleep, queued
+  await tick(d, s, 1000)                                                 // Fen's call fails: the small model is backed off
+  for (let i = 0; i < 4; i++) await tick(d, s)                          // Mo's queued sleep happens in here
+  expect(mo.asleep).toBe(true)
+  expect(model.requests.filter(isDiary)).toHaveLength(0)
+  await tick(d, s, 30_000)                                              // past the minute's wait
+  expect(model.requests.filter(isDiary)).toHaveLength(1); expect(d.store.diary(mo.id, 5)).toHaveLength(1)
+})
