@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Seedlings</title>
+    <link rel="stylesheet" href="./style.css" />
+  </head>
+  <body>
+    <header class="bar">
+      <strong id="clock">…</strong>
+      <span id="weather" class="quiet"></span>
+      <span id="count" class="quiet"></span>
+      <span class="budget">
+        <span id="reason" class="quiet"></span>
+        <span class="meter" aria-hidden="true"><span id="meter-fill"></span></span>
+        <span id="left" class="quiet"></span>
+      </span>
+    </header>
+    <main class="layout">
+      <section class="town" aria-label="The town">
+        <canvas id="town"></canvas>
+        <p id="status" class="status" role="status"></p>
+      </section>
+      <aside class="panel" aria-label="Pip">
+        <h1>Pip</h1>
+        <h2>Right now</h2>
+        <p id="doing"></p>
+        <h2>On Pip's mind</h2>
+        <p id="thought" class="thought"></p>
+        <ul id="mind" class="mind"></ul>
+        <h2>Diary</h2>
+        <p class="quiet hint">Open an entry to see what Pip saw and thought.</p>
+        <ol id="diary" class="diary"></ol>
+      </aside>
+    </main>
+    <script type="module" src="./main.ts"></script>
+  </body>
+</html>
