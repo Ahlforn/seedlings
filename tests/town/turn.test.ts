@@ -139,3 +139,64 @@ test('turns and the diary ask for the configured reasoning effort', async () => 
   await runTurn(withEffort, PIP_ID); await runReflection(withEffort, PIP_ID, false)
   expect(d.model.requests.map(r => r.reasoningEffort)).toEqual(['medium', 'medium'])
 })
+
+// ---- Stage 2: any character ----
+import { addInhabitant } from '../world/helpers.ts'
+
+const moth = { name: 'Mo', you: 'a moth', core: 'Shy.', traits: ['shy'], values: ['quiet'], fears: ['noise'] }
+
+test('an inhabitant thinks with its own sheet and the small model, and hears once', async () => {
+  const d = deps([waitReply]); const mo = addInhabitant(d.world, 'Mo', character(d.world, PIP_ID).at); mo.sheet = moth
+  mo.heard = [{ from: 'Pip', text: 'Hi', minute: d.world.minutes, toYou: true }]
+  const out = await runTurn(d, mo.id)
+  const req = d.model.requests[0]
+  expect(req.model).toBe('deepseek-v4.1-flash'); expect(req.sessionId).toBe(mo.id)
+  expect(req.system).toContain('You are Mo, a moth'); expect(req.system).not.toContain('start_building')
+  expect(req.system).toContain('Pip, a seedling, built everything else here')
+  expect(req.user).toContain('Pip said to you: "Hi"'); expect(mo.heard).toEqual([])
+  expect(d.store.getTurn(out.turnId)!.model).toBe('deepseek-v4.1-flash')
+  expect(d.store.spentBetween(0, d.now() + 1, { except: PIP_ID })).toBeCloseTo(0.01)
+})
+test('what Pip says is remembered by whoever heard it', async () => {
+  const say = '{"consider":"hi","do":[{"action":"speak","params":{"to":"Mo","text":"Welcome"}}],"because":"."}'
+  const d = deps([say]); const mo = addInhabitant(d.world, 'Mo', character(d.world, PIP_ID).at)
+  const out = await runTurn(d, PIP_ID)
+  expect(out.heardBy).toEqual([mo.id]); expect(out.created).toBeNull()
+  expect(d.store.memories(mo.id).map((m) => m.text)).toContain('Pip said to me: "Welcome"')
+})
+test('a queued move that speaks is heard too', async () => {
+  const two = '{"consider":"hi","do":[{"action":"wait","params":{}},{"action":"speak","params":{"text":"Morning"}}],"because":"."}'
+  const d = deps([two]); const mo = addInhabitant(d.world, 'Mo', character(d.world, PIP_ID).at)
+  await runTurn(d, PIP_ID); advance(d.world, 20)
+  const out = performQueued(d, PIP_ID)!
+  expect(out.heardBy).toEqual([mo.id])
+  expect(d.store.memories(mo.id).map((m) => m.text)).toContain('Pip said: "Morning"')
+})
+test('a failed call leaves what was heard for next time', async () => {
+  const d = deps([new ModelError('down')]); const mo = addInhabitant(d.world, 'Mo', { x: 1, y: 1 })
+  mo.heard = [{ from: 'Pip', text: 'Hi', minute: 0, toYou: false }]
+  await expect(runTurn(d, mo.id)).rejects.toThrow('down')
+  expect(mo.heard).toHaveLength(1)
+})
+test('an inhabitant reflection uses its sheet and tidies to the smaller cap', async () => {
+  const sleep = '{"consider":"tired","do":[{"action":"sleep","params":{"target":"the hollow tree"}}],"because":"."}'
+  const d = deps([sleep, '{"diary":"A quiet day.","memories":[],"mind":[],"done":[]}'])
+  const mo = addInhabitant(d.world, 'Mo', { x: 1, y: 1 }); mo.sheet = moth; mo.body.tiredness = 0.8
+  for (let i = 0; i < 70; i++) d.store.addMemory({ characterId: mo.id, text: `thing ${i}`, kind: 'fact', sinceMinutes: i })
+  await runTurn(d, mo.id)
+  expect(await runReflection(d, mo.id, true)).not.toBeNull()
+  expect(d.model.requests[1].model).toBe('deepseek-v4.1-flash'); expect(d.model.requests[1].system).toContain('You are Mo, a moth')
+  expect(d.store.memories(mo.id)).toHaveLength(60)
+  expect(d.store.memories(PIP_ID)).toHaveLength(0)
+})
+test('creating someone leaves a memory in Pip and in the newcomer', async () => {
+  const make = JSON.stringify({ consider: 'company', do: [{ action: 'create_inhabitant', params: { name: 'Mo', kind: 'a moth', who: 'Shy.', traits: 'shy',
+    cares_about: 'quiet', fears: 'noise', colour: 'blue', mark: 'ears', home: 'Burrow' } }], because: '.' })
+  const d = deps([make]); d.world.populationLimit = 1
+  d.world.buildings.push({ id: 'b1', name: 'Burrow', purpose: 'home', about: '', at: { x: 2, y: 2 }, workLeft: 0, workTotal: 3, startedDay: 1,
+    recipe: { footprint: 1, floors: 1, wall: 'cream', roof: 'flat', roofColour: 'red', door: true, windows: 0, sign: '', extras: [] } })
+  const out = await runTurn(d, PIP_ID)
+  expect(out.created).not.toBeNull()
+  expect(d.store.memories(PIP_ID).map((m) => m.text)).toContain('I made Mo. They live at Burrow.')
+  expect(d.store.memories(out.created!).map((m) => m.kind)).toEqual(['moment'])
+})

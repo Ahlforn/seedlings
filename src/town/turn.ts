@@ -7,7 +7,7 @@ import type { Decision } from '../mind/decision.ts'
 import { beliefFor, recall, tidyMemories } from '../mind/memory.ts'
 import { systemPrompt, whatISee } from '../mind/prompt.ts'
 import { readReflection, reflectionPrompt } from '../mind/reflect.ts'
-import { PIP_SHEET } from '../mind/sheet.ts'
+import { MINDS, modelFor, sheetFor } from '../mind/tiers.ts'
 import { ModelError } from '../model/client.ts'
 import type { ModelClient, ModelReply } from '../model/client.ts'
 import type { Act, World } from '../shared/types.ts'
@@ -25,11 +25,17 @@ export type TownDeps = {
   config: Config
   now: () => number
 }
-export type TurnOutcome = { turnId: number; results: ActResult[]; wentToSleep: boolean; finishedBuilding: boolean }
+export type TurnOutcome = {
+  turnId: number
+  results: ActResult[]
+  wentToSleep: boolean
+  finishedBuilding: boolean
+  /** who heard what was said, so they can answer sooner */
+  heardBy: string[]
+  /** a character brought to life by this turn */
+  created: string | null
+}
 
-const MEMORIES_RECALLED = 5
-const MIND_ITEMS_SHOWN = 3
-const MEMORY_CAP = 200
 const DAY_MINUTES = 1440
 /** A reflection looks back over at most this many turns, so its prompt cannot grow without bound. */
 const REFLECTION_TURNS = 12
@@ -57,8 +63,10 @@ function refuseIfCutOff(reply: ModelReply): void {
 
 const finishedCount = (world: World) => world.buildings.filter((b) => b.workLeft === 0).length
 
-/** Acts one move and applies what it teaches. */
-function perform(deps: TownDeps, characterId: string, move: Act): { result: ActResult; wentToSleep: boolean; finishedBuilding: boolean } {
+type Performed = { result: ActResult; wentToSleep: boolean; finishedBuilding: boolean }
+
+/** Acts one move and applies what it teaches, to the actor and to anyone the move reached. */
+function perform(deps: TownDeps, characterId: string, move: Act): Performed {
   const { world, store } = deps
   const c = character(world, characterId)
   const wasAsleep = c.asleep
@@ -66,6 +74,7 @@ function perform(deps: TownDeps, characterId: string, move: Act): { result: ActR
   const result = act(world, characterId, move)
   const belief = beliefFor(result)
   if (belief) store.bumpBelief(characterId, belief.key, belief.text)
+  for (const left of result.leaves) store.addMemory({ ...left, sinceMinutes: world.minutes })
   return {
     result,
     wentToSleep: !wasAsleep && c.asleep,
@@ -78,10 +87,12 @@ export async function runTurn(deps: TownDeps, characterId: string): Promise<Turn
   const { world, store, model, budget, config } = deps
   const c = character(world, characterId)
 
+  const mind = MINDS[c.tier]
+  const modelName = modelFor(c, config)
   const observation = observe(world, characterId)
-  const recalled = recall(store.memories(characterId), observation, MEMORIES_RECALLED)
-  const system = systemPrompt(manifest(c.tier), observation, PIP_SHEET)
-  const user = whatISee(observation, recalled, store.beliefs(characterId), store.openMindItems(characterId).slice(0, MIND_ITEMS_SHOWN))
+  const recalled = recall(store.memories(characterId), observation, mind.memoriesRecalled)
+  const system = systemPrompt(manifest(c.tier), observation, sheetFor(c))
+  const user = whatISee(observation, recalled, store.beliefs(characterId), store.openMindItems(characterId).slice(0, mind.mindShown))
 
   // Written before asking: if the database cannot be written, the model is never called,
   // so no request can go unrecorded.
@@ -91,14 +102,16 @@ export async function runTurn(deps: TownDeps, characterId: string): Promise<Turn
   let decision: Decision | null = null
   for (let attempt = 0; attempt < 2 && !decision; attempt++) {
     // The first reply may have used up the budget, or been charged to balance: then there is no second ask.
-    if (attempt > 0 && !budget.status().canThink) break
-    const reply = await model.complete({ model: config.pipModel, system, user, sessionId: characterId, maxTokens: config.maxTokens, reasoningEffort: config.reasoningEffort })
+    if (attempt > 0 && !budget.status(mind.pool).canThink) break
+    const reply = await model.complete({ model: modelName, system, user, sessionId: characterId, maxTokens: config.maxTokens, reasoningEffort: config.reasoningEffort })
     budget.record(characterId, reply.usage)
     refuseIfCutOff(reply)
     replies.push(reply)
     decision = readDecision(reply.text)
   }
   decision ??= WAIT
+  // What was heard has now been seen; it stays only if the model could not be asked.
+  c.heard = []
 
   store.touchMemories(recalled.map((memory) => memory.id), world.minutes)
   const [first, ...rest] = decision.moves
@@ -119,15 +132,24 @@ export async function runTurn(deps: TownDeps, characterId: string): Promise<Turn
     rawReply: replies.map((reply) => reply.text).join('\n---\n'),
     decision: JSON.stringify(decision),
     results: JSON.stringify([done.result]),
-    model: config.pipModel,
+    model: modelName,
     allowance: replies.reduce((sum, reply) => sum + (reply.usage.allowance ?? 0), 0),
     inputTokens: replies.reduce((sum, reply) => sum + reply.usage.inputTokens, 0),
     outputTokens: replies.reduce((sum, reply) => sum + reply.usage.outputTokens, 0),
   })
   c.queueTurn = turnId
   store.saveWorld(world)
-  return { turnId, results: [done.result], wentToSleep: done.wentToSleep, finishedBuilding: done.finishedBuilding }
+  return outcomeOf(turnId, done)
 }
+
+const outcomeOf = (turnId: number, done: Performed): TurnOutcome => ({
+  turnId,
+  results: [done.result],
+  wentToSleep: done.wentToSleep,
+  finishedBuilding: done.finishedBuilding,
+  heardBy: done.result.heardBy,
+  created: done.result.created,
+})
 
 /** Acts the next move left over from the last decision, with no model call. Null when there is none. */
 export function performQueued(deps: TownDeps, characterId: string): TurnOutcome | null {
@@ -144,21 +166,24 @@ export function performQueued(deps: TownDeps, characterId: string): TurnOutcome 
     store.setTurnResults(turn.id, JSON.stringify([...results, done.result]))
   }
   store.saveWorld(world)
-  return { turnId: c.queueTurn, results: [done.result], wentToSleep: done.wentToSleep, finishedBuilding: done.finishedBuilding }
+  return outcomeOf(c.queueTurn, done)
 }
 
 /** Writes a diary entry about the turns since the last one. Null when there is nothing new or the reply is unreadable. */
 export async function runReflection(deps: TownDeps, characterId: string, endOfDay: boolean): Promise<number | null> {
   const { world, store, model, budget, config } = deps
-  if (!budget.status().canThink) return null
+  const c = character(world, characterId)
+  const mind = MINDS[c.tier]
+  const modelName = modelFor(c, config)
+  if (!budget.status(mind.pool).canThink) return null
   const unseen = store.turnsBetween(characterId, reflectedUpTo(store, characterId) + 1, store.lastTurnId(characterId))
   if (unseen.length === 0) return null
   const turns = unseen.slice(-REFLECTION_TURNS)
 
   const open = store.openMindItems(characterId)
   store.setFlag(CALL_FLAG, String(deps.now()))
-  const prompt = reflectionPrompt(PIP_SHEET, clockOf(world.minutes).label, turns, open, endOfDay)
-  const reply = await model.complete({ model: config.pipModel, system: prompt.system, user: prompt.user, sessionId: characterId, maxTokens: config.maxTokens, reasoningEffort: config.reasoningEffort })
+  const prompt = reflectionPrompt(sheetFor(c), clockOf(world.minutes).label, turns, open, endOfDay)
+  const reply = await model.complete({ model: modelName, system: prompt.system, user: prompt.user, sessionId: characterId, maxTokens: config.maxTokens, reasoningEffort: config.reasoningEffort })
   budget.record(characterId, reply.usage)
   refuseIfCutOff(reply)
   const reflection = readReflection(reply.text)
@@ -173,7 +198,7 @@ export async function runReflection(deps: TownDeps, characterId: string, endOfDa
     rawReply: reply.text,
     decision: JSON.stringify(reflection),
     results: '[]',
-    model: config.pipModel,
+    model: modelName,
     allowance: reply.usage.allowance ?? 0,
     inputTokens: reply.usage.inputTokens,
     outputTokens: reply.usage.outputTokens,
@@ -198,7 +223,7 @@ export async function runReflection(deps: TownDeps, characterId: string, endOfDa
     const recalledToday = store.memories(characterId)
       .filter((memory) => memory.recalled > 0 && memory.lastRecalledMinutes > world.minutes - DAY_MINUTES)
       .map((memory) => memory.id)
-    tidyMemories(store, characterId, recalledToday, MEMORY_CAP)
+    tidyMemories(store, characterId, recalledToday, mind.memoryCap)
   }
   return diaryId
 }
