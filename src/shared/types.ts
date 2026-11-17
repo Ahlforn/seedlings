@@ -1,0 +1,70 @@
+/** Types shared by the server and the watch page. */
+
+export type Tile = { x: number; y: number }
+export type Urgency = 'satisfied' | 'mild' | 'strong' | 'urgent'
+
+export type FeatureKind = 'berry_bush' | 'hollow_tree' | 'pond' | 'tree'
+export type Feature = { id: string; kind: FeatureKind; name: string; at: Tile }
+
+export type Colour = 'cream' | 'white' | 'sand' | 'brick' | 'red' | 'blue' | 'green' | 'yellow' | 'grey' | 'brown'
+export type RoofShape = 'flat' | 'pitched' | 'pyramid' | 'dome'
+export type Extra = 'chimney' | 'awning' | 'garden' | 'lantern'
+export type Recipe = {
+  footprint: 1 | 2 | 3
+  floors: 1 | 2 | 3
+  wall: Colour
+  roof: RoofShape
+  roofColour: Colour
+  door: boolean
+  windows: 0 | 1 | 2 | 3
+  sign: string
+  extras: Extra[]
+}
+
+export type Purpose = 'home' | 'food' | 'other'
+export type Building = {
+  id: string
+  name: string
+  purpose: Purpose
+  about: string
+  recipe: Recipe
+  at: Tile
+  workLeft: number
+  workTotal: number
+  startedDay: number
+}
+
+/** hunger and tiredness run 0..1, mood runs -1..1 */
+export type Body = { hunger: number; tiredness: number; mood: number }
+
+export type Act = { action: string; params: Record<string, string> }
+
+export type Character = {
+  id: string
+  name: string
+  tier: 'origin' | 'inhabitant'
+  at: Tile
+  body: Body
+  asleep: boolean
+  /** world minutes until which the character is occupied */
+  busyUntil: number
+  doing: string
+  said: string
+  saidAt: number
+  /** moves still to do from the last decision, and that turn's id */
+  queue: Act[]
+  queueTurn: number
+}
+
+export type World = {
+  size: number
+  seed: number
+  rng: number
+  minutes: number
+  rain: 0 | 1 | 2 | 3
+  features: Feature[]
+  buildings: Building[]
+  characters: Character[]
+  events: { minute: number; text: string }[]
+  nextId: number
+}
