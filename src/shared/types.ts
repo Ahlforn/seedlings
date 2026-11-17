@@ -68,3 +68,32 @@ export type World = {
   events: { minute: number; text: string }[]
   nextId: number
 }
+
+/** What the watch page is sent. */
+export type StateView = {
+  clock: string
+  day: number
+  night: boolean
+  weather: string
+  size: number
+  features: Feature[]
+  buildings: Building[]
+  characters: { id: string; name: string; at: Tile; asleep: boolean; doing: string; said: string; mood: number }[]
+  budget: { leftToday: number; canThink: boolean; reason: string }
+  pip: { doing: string; thought: string; onMind: string[] }
+}
+
+export type DiaryView = { id: number; clock: string; text: string }
+
+/** A diary entry and the turns it was written about. */
+export type TraceView = {
+  entry: DiaryView
+  turns: {
+    clock: string
+    saw: string
+    consider: string
+    moves: Act[]
+    because: string
+    results: { success: boolean; message: string }[]
+  }[]
+}
