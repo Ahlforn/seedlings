@@ -41,6 +41,6 @@ test('reasoning effort: low by default, may be turned up or left to the provider
 })
 
 test('the inhabitant model is a setting', () => {
-  expect(loadConfig({ SEEDLINGS_PASSWORD: 'p', SEEDLINGS_FAKE_MODEL: '1' }).inhabitantModel).toBe('deepseek-v4.1-flash')
+  expect(loadConfig({ SEEDLINGS_PASSWORD: 'p', SEEDLINGS_FAKE_MODEL: '1' }).inhabitantModel).toBe('glm-5.3-flash')
   expect(loadConfig({ SEEDLINGS_PASSWORD: 'p', SEEDLINGS_FAKE_MODEL: '1', SEEDLINGS_INHABITANT_MODEL: 'tiny' }).inhabitantModel).toBe('tiny')
 })

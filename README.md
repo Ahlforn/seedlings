@@ -1,10 +1,10 @@
 # Seedlings
 
 A small town that lives on its own. Pip, a seedling driven by a language model, arrives on an empty
-plot, decides its own day, builds buildings from a kit, remembers, and keeps a diary. You watch on a
-private isometric web page; nobody tells Pip what to do.
+plot, decides its own day, builds buildings from a kit, brings inhabitants to life to live in them,
+remembers, and keeps a diary. You watch on a private isometric web page; nobody tells anyone what to do.
 
-This is stage 1 (Pip alone). The design is in `docs/superpowers/specs/`, the build plan in
+This is stage 2 (inhabitants). The design is in `docs/superpowers/specs/`, the build plan in
 `docs/superpowers/plans/`.
 
 ## Run it
@@ -53,7 +53,7 @@ All settings are environment variables, read from `.env` when present.
 | `SEEDLINGS_DB` | `./data/seedlings.db` | Where the town is stored |
 | `SEEDLINGS_BASE_URL` | OpenCode Go | Any OpenAI-shaped chat endpoint |
 | `SEEDLINGS_PIP_MODEL` | `glm-5.2` | The model that drives Pip |
-| `SEEDLINGS_INHABITANT_MODEL` | `deepseek-v4.1-flash` | The small model that drives the inhabitants |
+| `SEEDLINGS_INHABITANT_MODEL` | `glm-5.3-flash` | The small model that drives the inhabitants |
 | `SEEDLINGS_JSON_MODE` | `1` | Set to `0` if the provider rejects JSON mode |
 | `SEEDLINGS_MAX_TOKENS` | `8000` | Room for one reply. A model that reasons first uses this for its reasoning too |
 | `SEEDLINGS_REASONING_EFFORT` | `low` | How long a reasoning model thinks before answering: `low`, `medium`, `high`, or empty to leave it to the provider |
@@ -79,6 +79,24 @@ with the town stopped:
 ```bash
 sqlite3 data/seedlings.db "delete from flags where key='halt'"
 ```
+
+## Inhabitants
+
+Once Pip has finished a home, it may bring someone to life to live there: Pip writes who they are,
+picks their colour and one mark, and chooses their home. A home holds as many inhabitants as it has
+floors. Pip cannot take anyone back.
+
+Inhabitants run on the smaller model in `SEEDLINGS_INHABITANT_MODEL`, with fewer moves than Pip: they
+walk, eat, sleep, look, talk and leave notes. Whoever is within a few steps hears what is said and
+remembers it, and someone spoken to answers sooner. Each writes one diary entry a day, at bedtime.
+
+Once there are inhabitants, each day's share is split in half between Pip and them. The town supports
+one inhabitant until it has seen what their turns cost; after that, as many as their half can pay for,
+up to twelve. Click anyone on the town, or use the tabs, to follow them and read their diary. The Town
+tab shows what has been happening.
+
+If you would rather use `deepseek-v4.1-flash`, note that OpenCode serves it from outside Europe and the
+US: it only works after you allow Global regions in your OpenCode workspace's privacy settings.
 
 ## On a VPS
 

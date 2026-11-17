@@ -160,7 +160,7 @@ test('I8: a reply charged to balance ends all asking, including the diary', asyn
 import { addInhabitant } from '../world/helpers.ts'
 import type { ModelRequest } from '../../src/model/client.ts'
 
-const SMALL = 'deepseek-v4.1-flash'
+const SMALL = 'glm-5.3-flash'
 const withInhabitants = (d: ReturnType<typeof deps>, n: number) => Array.from({ length: n }, (_, i) => {
   const c = addInhabitant(d.world, ['Mo', 'Fen', 'Dot'][i], character(d.world, PIP_ID).at)
   c.sheet = { name: c.name, you: 'a moth', core: 'Shy.', traits: ['shy'], values: ['quiet'], fears: ['noise'] }

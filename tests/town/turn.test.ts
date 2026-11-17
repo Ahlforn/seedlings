@@ -150,11 +150,11 @@ test('an inhabitant thinks with its own sheet and the small model, and hears onc
   mo.heard = [{ from: 'Pip', text: 'Hi', minute: d.world.minutes, toYou: true }]
   const out = await runTurn(d, mo.id)
   const req = d.model.requests[0]
-  expect(req.model).toBe('deepseek-v4.1-flash'); expect(req.sessionId).toBe(mo.id)
+  expect(req.model).toBe('glm-5.3-flash'); expect(req.sessionId).toBe(mo.id)
   expect(req.system).toContain('You are Mo, a moth'); expect(req.system).not.toContain('start_building')
   expect(req.system).toContain('Pip, a seedling, built everything else here')
   expect(req.user).toContain('Pip said to you: "Hi"'); expect(mo.heard).toEqual([])
-  expect(d.store.getTurn(out.turnId)!.model).toBe('deepseek-v4.1-flash')
+  expect(d.store.getTurn(out.turnId)!.model).toBe('glm-5.3-flash')
   expect(d.store.spentBetween(0, d.now() + 1, { except: PIP_ID })).toBeCloseTo(0.01)
 })
 test('what Pip says is remembered by whoever heard it', async () => {
@@ -185,7 +185,7 @@ test('an inhabitant reflection uses its sheet and tidies to the smaller cap', as
   for (let i = 0; i < 70; i++) d.store.addMemory({ characterId: mo.id, text: `thing ${i}`, kind: 'fact', sinceMinutes: i })
   await runTurn(d, mo.id)
   expect(await runReflection(d, mo.id, true)).not.toBeNull()
-  expect(d.model.requests[1].model).toBe('deepseek-v4.1-flash'); expect(d.model.requests[1].system).toContain('You are Mo, a moth')
+  expect(d.model.requests[1].model).toBe('glm-5.3-flash'); expect(d.model.requests[1].system).toContain('You are Mo, a moth')
   expect(d.store.memories(mo.id)).toHaveLength(60)
   expect(d.store.memories(PIP_ID)).toHaveLength(0)
 })

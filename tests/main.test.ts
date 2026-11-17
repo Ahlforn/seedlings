@@ -35,3 +35,24 @@ test('a town stopped and started again carries on from where it was', async () =
   expect(after.day).toBeGreaterThanOrEqual(before.day)
   expect(after.buildings.map((b: any) => b.name)).toEqual(expect.arrayContaining(before.buildings.map((b: any) => b.name)))
 }, 15_000)
+
+// ---- Stage 2 ----
+test('a town restarted on its database keeps its inhabitants', async () => {
+  const { mkdtempSync } = await import('node:fs'); const { tmpdir } = await import('node:os'); const { join } = await import('node:path')
+  const { openStore } = await import('../src/store/store.ts'); const { addInhabitant } = await import('./world/helpers.ts')
+  const dbPath = join(mkdtempSync(join(tmpdir(), 'seedlings-')), 'town.db')
+  const config = { ...loadConfig({ SEEDLINGS_PASSWORD: 'secret', SEEDLINGS_FAKE_MODEL: '1' }), port: 0, dbPath, tickMs: 20 }
+  const first = await startTown(config); await first.stop()
+
+  const store = openStore(dbPath); const world = store.loadWorld()!
+  addInhabitant(world, 'Mo', { x: 3, y: 3 }).sheet = { name: 'Mo', you: 'a moth', core: 'Shy.', traits: ['shy'], values: ['quiet'], fears: ['noise'] }
+  store.saveWorld(world); store.close()
+
+  const second = await startTown(config)
+  const login = await fetch(`http://localhost:${second.port}/login`, { method: 'POST', redirect: 'manual',
+    headers: { 'content-type': 'application/x-www-form-urlencoded' }, body: 'password=secret' })
+  const state = await (await fetch(`http://localhost:${second.port}/api/state`, { headers: { cookie: login.headers.get('set-cookie')!.split(';')[0] } })).json() as any
+  await second.stop()
+  expect(state.characters.map((c: any) => c.name)).toEqual(['Pip', 'Mo'])
+  expect(state.population.count).toBe(1)
+}, 15_000)
