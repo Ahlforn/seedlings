@@ -155,3 +155,97 @@ test('I8: a reply charged to balance ends all asking, including the diary', asyn
   free(d); d.clock.t += 2 * 86_400_000; await s.step(5000); await s.step(5000)
   expect(asked).toBe(1)
 })
+
+// ---- Stage 2: a whole town ----
+import { addInhabitant } from '../world/helpers.ts'
+import type { ModelRequest } from '../../src/model/client.ts'
+
+const SMALL = 'deepseek-v4.1-flash'
+const withInhabitants = (d: ReturnType<typeof deps>, n: number) => Array.from({ length: n }, (_, i) => {
+  const c = addInhabitant(d.world, ['Mo', 'Fen', 'Dot'][i], character(d.world, PIP_ID).at)
+  c.sheet = { name: c.name, you: 'a moth', core: 'Shy.', traits: ['shy'], values: ['quiet'], fears: ['noise'] }
+  return c
+})
+/** Answers each character from its own list, then waits. */
+const byWho = (lists: Record<string, string[]>) => scriptedClient([(req: ModelRequest) => lists[req.sessionId]?.shift() ?? wait], true)
+const say = (to: string, text: string) => JSON.stringify({ consider: 'talk', do: [{ action: 'speak', params: { to, text } }], because: '.' })
+const small = (d: { model: { requests: ModelRequest[] } }) => d.model.requests.filter((r) => r.model === SMALL)
+const tick = async (d: ReturnType<typeof deps>, s: ReturnType<typeof createScheduler>, ms = 10_000) => { d.clock.t += ms; await s.step(ms) }
+
+test('an inhabitant thinks with the small model on its own pace', async () => {
+  const d = deps([wait, wait]); withInhabitants(d, 1); const s = createScheduler(d)
+  await s.step(5000)
+  expect(d.model.requests.map((r) => r.model)).toEqual(['glm-5.2', SMALL])
+})
+test('at most one inhabitant thinks in a step, the most overdue first', async () => {
+  const d = deps([wait, wait, wait, wait]); const [a, b] = withInhabitants(d, 2); const s = createScheduler(d)
+  await s.step(5000)
+  expect(small(d)).toHaveLength(1)
+  free(d); await tick(d, s, 1000)
+  expect(small(d).map((r) => r.sessionId)).toEqual([a.id, b.id])
+})
+// Review Focus 1
+test('someone spoken to answers sooner, but never within a minute of their last turn', async () => {
+  const d = deps([]); const [mo] = withInhabitants(d, 1)
+  const twice = JSON.stringify({ consider: 'talk', do: [{ action: 'speak', params: { to: 'Mo', text: 'Hello' } }, { action: 'speak', params: { to: 'Mo', text: 'Still there?' } }], because: '.' })
+  const model = byWho({ pip: [twice], [mo.id]: [say('Pip', 'Hi'), say('Pip', 'Yes')] })
+  const town = { ...d, model }; const s = createScheduler(town)
+  await s.step(5000)                                                   // Pip says hello; Mo, hearing it, answers at once
+  expect(small(town)).toHaveLength(1)
+  expect(d.budget.status('inhabitants').intervalMs).toBeGreaterThan(120_000)
+  for (let i = 0; i < 5; i++) await tick(d, s)                         // Pip's second line comes about 30 s in
+  expect(mo.heard.at(-1)?.text ?? d.store.memories(mo.id).at(-1)!.text).toContain('Still there?')
+  expect(small(town)).toHaveLength(1)                                  // 50 s after Mo's turn: not yet
+  await tick(d, s); await tick(d, s)
+  expect(small(town)).toHaveLength(2)                                  // a minute after: Mo answers
+})
+// Review Focus 1
+test('a conversation stops when the day share is spent', async () => {
+  const d = deps([]); const [mo] = withInhabitants(d, 1)
+  d.store.addSpend(d.clock.t, mo.id, 0.995)                            // the inhabitants' 1.00 is all but gone
+  const model = byWho({ pip: [say('Mo', 'Hello'), say('Mo', 'Hello?'), say('Mo', 'Mo?')] })
+  const town = { ...d, model }; const s = createScheduler(town)
+  for (let i = 0; i < 3; i++) { free(d); await tick(d, s, d.budget.status('origin').intervalMs) }
+  expect(model.requests.filter((r) => r.sessionId === PIP_ID).length).toBeGreaterThanOrEqual(3)
+  expect(small(town)).toHaveLength(0)
+})
+// Review Focus 5
+test('the small model failing backs off every inhabitant and leaves Pip thinking', async () => {
+  const d = deps([]); withInhabitants(d, 2)
+  const model = scriptedClient([(req: ModelRequest) => { if (req.model === SMALL) throw new ModelError('down'); return wait }], true)
+  const town = { ...d, model }; const s = createScheduler(town)
+  await s.step(5000)
+  for (let i = 0; i < 5; i++) await tick(d, s)                         // 50 s: everyone is waiting out the first failure
+  expect(small(town)).toHaveLength(1)
+  expect(s.trouble()).toBe('Inhabitants: down')
+  await tick(d, s, 11_000); expect(small(town)).toHaveLength(2)        // after 60 s, one inhabitant tries again
+  free(d); await tick(d, s, d.budget.status('origin').intervalMs)
+  expect(model.requests.filter((r) => r.sessionId === PIP_ID)).toHaveLength(2)
+  expect(d.store.spentBetween(0, d.clock.t + 1, { except: PIP_ID })).toBe(0)
+})
+test('an inhabitant writes its diary when it goes to bed in the evening, and not at a nap', async () => {
+  const d = deps([]); const [mo] = withInhabitants(d, 1)
+  character(d.world, PIP_ID).asleep = true; character(d.world, PIP_ID).body.tiredness = 0.9
+  const model = byWho({ [mo.id]: [sleepReply, diaryReply] }); const town = { ...d, model }
+  mo.body.tiredness = 0.8; d.world.minutes = 22 * 60
+  await createScheduler(town).step(5000)
+  expect(model.requests.map((r) => r.sessionId)).toEqual([mo.id, mo.id])
+  expect(model.requests[1].system).toContain('You are Mo, a moth')
+  expect(d.store.diary(mo.id, 5)).toHaveLength(1); expect(d.store.diary(PIP_ID, 5)).toHaveLength(0)
+
+  const e = deps([]); const [fen] = withInhabitants(e, 1)
+  character(e.world, PIP_ID).asleep = true; character(e.world, PIP_ID).body.tiredness = 0.9
+  const napper = byWho({ [fen.id]: [sleepReply, diaryReply] })
+  fen.body.tiredness = 0.5; e.world.minutes = 10 * 60
+  await createScheduler({ ...e, model: napper }).step(5000)
+  expect(napper.requests).toHaveLength(1); expect(e.store.diary(fen.id, 5)).toHaveLength(0)
+})
+test('the population the town supports is written into the world', async () => {
+  const d = deps([wait]); await createScheduler(d).step(5000); expect(d.world.populationLimit).toBe(1)
+})
+test('each character has its own last thought', async () => {
+  const d = deps([]); const [mo] = withInhabitants(d, 1)
+  const model = byWho({ pip: [wait], [mo.id]: ['{"consider":"so quiet","do":[{"action":"wait","params":{}}],"because":"."}'] })
+  const s = createScheduler({ ...d, model }); await s.step(5000)
+  expect(s.lastThought()).toBe('hm'); expect(s.lastThought(mo.id)).toBe('so quiet')
+})

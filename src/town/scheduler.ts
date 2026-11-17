@@ -1,9 +1,15 @@
-/** The loop: moves time forward and gives Pip a turn when it is free and the budget allows. */
+/**
+ * The loop: moves time forward and gives characters their turns when they are free and the budget allows.
+ * Each step, Pip may think and at most one inhabitant may think. Calls are made one at a time, so what a
+ * call cost is always recorded before the next one is made.
+ */
 
+import { MINDS } from '../mind/tiers.ts'
 import { shouldReflect } from '../mind/reflect.ts'
 import { ModelError } from '../model/client.ts'
+import type { Character } from '../shared/types.ts'
 import { START_MINUTES, clockOf, worldMinutesFor } from '../world/clock.ts'
-import { PIP_ID, advance, character } from '../world/world.ts'
+import { PIP_ID, advance } from '../world/world.ts'
 import { performQueued, runReflection, runTurn, turnsSinceReflection } from './turn.ts'
 import type { TownDeps, TurnOutcome } from './turn.ts'
 
@@ -14,18 +20,23 @@ export type Scheduler = {
   /** Stops the loop. Resolves once any step in flight has finished. */
   stop(): Promise<void>
   onChange(fn: () => void): () => void
-  lastThought(): string
+  /** What a character last thought before acting; Pip's when no id is given. */
+  lastThought(characterId?: string): string
   /** Why thinking or saving is failing right now, or an empty string when all is well. */
   trouble(): string
 }
 
 const FIRST_BACKOFF_MS = 60_000
 const MAX_BACKOFF_MS = 30 * 60_000
-const NEXT_THINK_FLAG = 'next_think_at'
-const DAY_ENDED_FLAG = `day_ended:${PIP_ID}`
+/** Someone spoken to is moved up to think next, but never sooner than this after their last turn. */
+const HURRY_GAP_MS = 60_000
 /** An in-world day runs from 06:00 to 06:00, so sleeping after midnight still ends the day before. */
 const DAY_STARTS_AT = 360
 const EVENING_HOUR = 18
+
+// Pip keeps the flag name it had before there were inhabitants, so a restart keeps its pace.
+const nextThinkFlag = (id: string) => (id === PIP_ID ? 'next_think_at' : `next_think_at:${id}`)
+const dayEndedFlag = (id: string) => `day_ended:${id}`
 
 const message = (error: unknown) => (error instanceof Error ? error.message : String(error))
 
@@ -36,93 +47,150 @@ function backoff(error: unknown, failures: number): number {
   return Math.min(Math.max(asked, exponential), MAX_BACKOFF_MS)
 }
 
+/** One character's pace and diary. */
+type Mind = {
+  nextThinkAt: number
+  lastTurnAt: number
+  nextReflectAt: number
+  reflectFailures: number
+  finishedSinceDiary: boolean
+  reflectTrouble: string
+}
+/** One tier's model: when it fails, everyone on it waits. */
+type Line = { failures: number; waitUntil: number; trouble: string }
+
 export function createScheduler(deps: TownDeps): Scheduler {
   const { world, store, budget, config } = deps
   const listeners = new Set<() => void>()
-  // The pace survives a restart: without this, every restart would think at once.
-  let nextThinkAt = Number(store.getFlag(NEXT_THINK_FLAG) ?? 0)
-  let nextReflectAt = 0
-  let thinkFailures = 0
-  let reflectFailures = 0
-  let finishedSinceDiary = false
-  let thinkTrouble = ''
-  let reflectTrouble = ''
+  const minds = new Map<string, Mind>()
+  const lines: Record<Character['tier'], Line> = {
+    origin: { failures: 0, waitUntil: 0, trouble: '' },
+    inhabitant: { failures: 0, waitUntil: 0, trouble: '' },
+  }
   let saveTrouble = ''
   let timer: ReturnType<typeof setTimeout> | null = null
   let running = false
   let inFlight: Promise<void> = Promise.resolve()
 
-  function thinkNext(at: number): void {
-    nextThinkAt = at
+  function mindOf(id: string): Mind {
+    let mind = minds.get(id)
+    if (!mind) {
+      // The pace survives a restart: without this, every restart would think at once.
+      mind = {
+        nextThinkAt: Number(store.getFlag(nextThinkFlag(id)) ?? 0),
+        lastTurnAt: store.getTurn(store.lastTurnId(id))?.realTs ?? 0,
+        nextReflectAt: 0,
+        reflectFailures: 0,
+        finishedSinceDiary: false,
+        reflectTrouble: '',
+      }
+      minds.set(id, mind)
+    }
+    return mind
+  }
+
+  function thinkNext(id: string, at: number): void {
+    mindOf(id).nextThinkAt = at
     try {
-      store.setFlag(NEXT_THINK_FLAG, String(at))
+      store.setFlag(nextThinkFlag(id), String(at))
     } catch (error) {
       saveTrouble = message(error)
     }
   }
 
+  /** Those who heard something think sooner, so a conversation does not stall between slow and fast minds. */
+  function hurry(ids: string[]): void {
+    for (const id of ids) {
+      const mind = mindOf(id)
+      const soonest = Math.max(deps.now(), mind.lastTurnAt + HURRY_GAP_MS)
+      if (soonest < mind.nextThinkAt) thinkNext(id, soonest)
+    }
+  }
+
   /** Writes the diary when it is due. A failure here never touches the pace of thinking. */
-  async function reflectIfDue(outcome: TurnOutcome): Promise<void> {
-    if (outcome.finishedBuilding) finishedSinceDiary = true
-    if (deps.now() < nextReflectAt) return
+  async function reflectIfDue(c: Character, outcome: TurnOutcome): Promise<void> {
+    const mind = mindOf(c.id)
+    if (outcome.finishedBuilding) mind.finishedSinceDiary = true
+    if (deps.now() < mind.nextReflectAt) return
 
     const clock = clockOf(world.minutes)
     const day = String(clockOf(Math.max(0, world.minutes - DAY_STARTS_AT)).day)
     const evening = clock.night || clock.hour >= EVENING_HOUR
     // Only the first sleep of the evening ends the day; naps and going back to sleep do not.
-    const endOfDay = outcome.wentToSleep && evening && store.getFlag(DAY_ENDED_FLAG) !== day
-    const last = store.diary(PIP_ID, 1)[0]
+    const endOfDay = outcome.wentToSleep && evening && store.getFlag(dayEndedFlag(c.id)) !== day
+    const last = store.diary(c.id, 1)[0]
     const due = shouldReflect({
       minutesSinceLast: world.minutes - (last?.worldMinutes ?? START_MINUTES),
-      turnsSinceLast: turnsSinceReflection(store, PIP_ID),
-      buildingFinished: finishedSinceDiary,
+      turnsSinceLast: turnsSinceReflection(store, c.id),
+      buildingFinished: mind.finishedSinceDiary,
       goingToSleep: endOfDay,
-      everyFewHours: true,
+      everyFewHours: MINDS[c.tier].diaryEveryFewHours,
     })
-    if (!due || !budget.status().canThink) return
+    if (!due || !budget.status(MINDS[c.tier].pool).canThink) return
 
     try {
-      await runReflection(deps, PIP_ID, endOfDay)
-      finishedSinceDiary = false
-      if (endOfDay) store.setFlag(DAY_ENDED_FLAG, day)
-      reflectFailures = 0
-      reflectTrouble = ''
+      await runReflection(deps, c.id, endOfDay)
+      mind.finishedSinceDiary = false
+      if (endOfDay) store.setFlag(dayEndedFlag(c.id), day)
+      mind.reflectFailures = 0
+      mind.reflectTrouble = ''
     } catch (error) {
-      reflectFailures += 1
-      nextReflectAt = deps.now() + backoff(error, reflectFailures)
-      reflectTrouble = message(error)
-      console.error(`[seedlings] the diary could not be written (${reflectFailures}):`, reflectTrouble)
+      mind.reflectFailures += 1
+      mind.nextReflectAt = deps.now() + backoff(error, mind.reflectFailures)
+      mind.reflectTrouble = message(error)
+      console.error(`[seedlings] ${c.name}'s diary could not be written (${mind.reflectFailures}):`, mind.reflectTrouble)
     }
   }
 
-  async function think(): Promise<void> {
+  async function after(c: Character, outcome: TurnOutcome): Promise<void> {
+    hurry(outcome.heardBy)
+    await reflectIfDue(c, outcome)
+  }
+
+  async function think(c: Character): Promise<void> {
+    const line = lines[c.tier]
     let outcome: TurnOutcome
     try {
-      outcome = await runTurn(deps, PIP_ID)
+      outcome = await runTurn(deps, c.id)
     } catch (error) {
-      thinkFailures += 1
-      const wait = backoff(error, thinkFailures)
-      thinkNext(deps.now() + wait)
-      thinkTrouble = message(error)
-      console.error(`[seedlings] thinking failed (${thinkFailures}), trying again in ${Math.round(wait / 1000)}s:`, thinkTrouble)
+      line.failures += 1
+      const wait = backoff(error, line.failures)
+      line.waitUntil = deps.now() + wait
+      line.trouble = message(error)
+      console.error(`[seedlings] ${c.name}: thinking failed (${line.failures}), trying again in ${Math.round(wait / 1000)}s:`, line.trouble)
       return
     }
-    thinkFailures = 0
-    thinkTrouble = ''
-    thinkNext(deps.now() + budget.status().intervalMs)
-    await reflectIfDue(outcome)
+    line.failures = 0
+    line.trouble = ''
+    mindOf(c.id).lastTurnAt = deps.now()
+    thinkNext(c.id, deps.now() + budget.status(MINDS[c.tier].pool).intervalMs)
+    await after(c, outcome)
   }
+
+  const free = (c: Character) => !c.asleep && world.minutes >= c.busyUntil
+  const due = (c: Character) => deps.now() >= mindOf(c.id).nextThinkAt && deps.now() >= lines[c.tier].waitUntil
+  const ready = (c: Character) => free(c) && c.queue.length === 0 && due(c)
 
   async function step(realElapsedMs: number): Promise<void> {
     try {
+      world.populationLimit = budget.supportable()
       // A long gap means the process was stopped or suspended; the town does not live through it.
       const elapsed = Math.min(realElapsedMs, 2 * config.tickMs)
       advance(world, worldMinutesFor(elapsed, config.daysPerRealDay))
 
-      const pip = character(world, PIP_ID)
-      if (!pip.asleep && world.minutes >= pip.busyUntil) {
-        if (pip.queue.length > 0) await reflectIfDue(performQueued(deps, PIP_ID)!)
-        else if (deps.now() >= nextThinkAt && budget.status().canThink) await think()
+      // Moves left over from an earlier decision need no model call.
+      for (const c of [...world.characters]) {
+        if (free(c) && c.queue.length > 0) await after(c, performQueued(deps, c.id)!)
+      }
+
+      const pip = world.characters.find((c) => c.tier === 'origin')
+      if (pip && ready(pip) && budget.status('origin').canThink) await think(pip)
+
+      // The most overdue inhabitant; ties go to whoever has lived here longest.
+      const waiting = world.characters.filter((c) => c.tier === 'inhabitant' && ready(c))
+      if (waiting.length > 0 && budget.status('inhabitants').canThink) {
+        const next = waiting.reduce((best, c) => (mindOf(c.id).nextThinkAt < mindOf(best.id).nextThinkAt ? c : best))
+        await think(next)
       }
       store.saveWorld(world)
       saveTrouble = ''
@@ -159,8 +227,8 @@ export function createScheduler(deps: TownDeps): Scheduler {
       listeners.add(fn)
       return () => { listeners.delete(fn) }
     },
-    lastThought() {
-      const turn = store.getTurn(store.lastTurnId(PIP_ID))
+    lastThought(characterId = PIP_ID) {
+      const turn = store.getTurn(store.lastTurnId(characterId))
       if (!turn) return ''
       try {
         return (JSON.parse(turn.decision) as { consider?: string }).consider ?? ''
@@ -169,7 +237,9 @@ export function createScheduler(deps: TownDeps): Scheduler {
       }
     },
     trouble() {
-      return saveTrouble || thinkTrouble || reflectTrouble
+      const inhabitants = lines.inhabitant.trouble ? `Inhabitants: ${lines.inhabitant.trouble}` : ''
+      const diary = [...minds.values()].find((mind) => mind.reflectTrouble)?.reflectTrouble ?? ''
+      return saveTrouble || lines.origin.trouble || inhabitants || diary
     },
   }
 }

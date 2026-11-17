@@ -25,6 +25,7 @@ export async function startTown(config: Config): Promise<{ port: number; stop():
     store,
     { monthlyAllowance: config.monthlyAllowance, periodStartDay: config.periodStartDay, ...pacing },
     Date.now,
+    () => world.characters.filter((c) => c.tier === 'inhabitant').length,
   )
   const scheduler = createScheduler({ world, store, model, budget, config, now: Date.now })
   const server = createServer({
