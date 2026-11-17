@@ -66,6 +66,8 @@ export type ActResult = {
   label: string
   /** ids of the characters who heard this move */
   heardBy: string[]
+  /** id of the one this move spoke to by name */
+  addressed: string | null
   /** memories this move leaves in characters, the actor or others */
   leaves: Left[]
   /** id of a character this move brought to life */
@@ -92,7 +94,7 @@ type Thing = { name: string; at: Tile; describe: string; look: string }
 type Offer = { ok: true; params: Record<string, string[]> } | { ok: false; reason: string }
 type Done = {
   message: string; moodDelta: number; minutes: number; label: string; event: string
-  heardBy?: string[]; leaves?: Left[]; created?: string | null
+  heardBy?: string[]; addressed?: string | null; leaves?: Left[]; created?: string | null
 }
 type Outcome = { ok: true; done: Done } | { ok: false; reason: string; label?: string }
 type MoveDef = {
@@ -476,7 +478,7 @@ const MOVES: MoveDef[] = [
         done: {
           message: `You say${to ? ` to ${to.name}` : ''}: "${text}"`, moodDelta: 0, minutes: 2, label: 'saying something out loud',
           event: `${c.name} said${to ? ` to ${to.name}` : ''}: "${text}"`,
-          heardBy: hearers.map((hearer) => hearer.id), leaves,
+          heardBy: hearers.map((hearer) => hearer.id), addressed: to?.id ?? null, leaves,
         },
       }
     },
@@ -586,7 +588,7 @@ export function observe(world: World, characterId: string): Observation {
 function refuse(world: World, c: Character, message: string, label: string): ActResult {
   c.body.mood = clamp(c.body.mood + REFUSAL_MOOD, -1, 1)
   addEvent(world, `${c.name} tried ${label} and it did not work`)
-  return { success: false, message, moodDelta: REFUSAL_MOOD, minutes: 0, label, heardBy: [], leaves: [], created: null }
+  return { success: false, message, moodDelta: REFUSAL_MOOD, minutes: 0, label, heardBy: [], addressed: null, leaves: [], created: null }
 }
 
 /** Carries out a move, or refuses it in plain words. Never throws for anything a mind can send. */
@@ -622,6 +624,6 @@ export function act(world: World, characterId: string, move: Act): ActResult {
   addEvent(world, done.event)
   return {
     success: true, message: done.message, moodDelta: done.moodDelta, minutes: done.minutes, label: done.label,
-    heardBy: done.heardBy ?? [], leaves: done.leaves ?? [], created: done.created ?? null,
+    heardBy: done.heardBy ?? [], addressed: done.addressed ?? null, leaves: done.leaves ?? [], created: done.created ?? null,
   }
 }

@@ -30,6 +30,12 @@ const FIRST_BACKOFF_MS = 60_000
 const MAX_BACKOFF_MS = 30 * 60_000
 /** Someone spoken to is moved up to think next, but never sooner than this after their last turn. */
 const HURRY_GAP_MS = 60_000
+/**
+ * A conversation may run ahead of the day's pace by at most this much of the day's share. Beyond it,
+ * answers come at the normal pace, so a chatty morning cannot leave a silent afternoon.
+ */
+const AHEAD_OF_PACE = 0.1
+const DAY_MS = 86_400_000
 /** An in-world day runs from 06:00 to 06:00, so sleeping after midnight still ends the day before. */
 const DAY_STARTS_AT = 360
 const EVENING_HOUR = 18
@@ -98,13 +104,15 @@ export function createScheduler(deps: TownDeps): Scheduler {
     }
   }
 
-  /** Those who heard something think sooner, so a conversation does not stall between slow and fast minds. */
-  function hurry(ids: string[]): void {
-    for (const id of ids) {
-      const mind = mindOf(id)
-      const soonest = Math.max(deps.now(), mind.lastTurnAt + HURRY_GAP_MS)
-      if (soonest < mind.nextThinkAt) thinkNext(id, soonest)
-    }
+  /** Whoever was spoken to thinks sooner, so a conversation does not stall between slow and fast minds. */
+  function hurry(id: string | null): void {
+    const c = id === null ? undefined : world.characters.find((other) => other.id === id)
+    if (!c) return
+    const dayLeft = 1 - (deps.now() % DAY_MS) / DAY_MS
+    if (budget.status(MINDS[c.tier].pool).leftTodayFraction < dayLeft - AHEAD_OF_PACE) return
+    const mind = mindOf(c.id)
+    const soonest = Math.max(deps.now(), mind.lastTurnAt + HURRY_GAP_MS)
+    if (soonest < mind.nextThinkAt) thinkNext(c.id, soonest)
   }
 
   /** Writes the diary when it is due. A failure here never touches the pace of thinking. */
@@ -143,7 +151,7 @@ export function createScheduler(deps: TownDeps): Scheduler {
   }
 
   async function after(c: Character, outcome: TurnOutcome): Promise<void> {
-    hurry(outcome.heardBy)
+    hurry(outcome.addressed)
     await reflectIfDue(c, outcome)
   }
 

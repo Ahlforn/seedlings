@@ -30,8 +30,10 @@ export type TurnOutcome = {
   results: ActResult[]
   wentToSleep: boolean
   finishedBuilding: boolean
-  /** who heard what was said, so they can answer sooner */
+  /** who heard what was said */
   heardBy: string[]
+  /** who was spoken to by name, so they can answer sooner */
+  addressed: string | null
   /** a character brought to life by this turn */
   created: string | null
 }
@@ -148,6 +150,7 @@ const outcomeOf = (turnId: number, done: Performed): TurnOutcome => ({
   wentToSleep: done.wentToSleep,
   finishedBuilding: done.finishedBuilding,
   heardBy: done.result.heardBy,
+  addressed: done.result.addressed,
   created: done.result.created,
 })
 

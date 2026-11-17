@@ -249,3 +249,31 @@ test('each character has its own last thought', async () => {
   const s = createScheduler({ ...d, model }); await s.step(5000)
   expect(s.lastThought()).toBe('hm'); expect(s.lastThought(mo.id)).toBe('so quiet')
 })
+
+// ---- Final review #2: a conversation borrows only a little ahead of pace ----
+test('a day of nonstop talk still leaves Pip thinking in the second half of the day', async () => {
+  const d = deps([]); const [mo] = withInhabitants(d, 1); const t0 = d.clock.t
+  const times: { who: string; at: number }[] = []
+  const model = scriptedClient([(req: ModelRequest) => {
+    times.push({ who: req.sessionId, at: d.clock.t })
+    return req.sessionId === PIP_ID ? say('Mo', 'And then?') : say('Pip', 'Go on.')
+  }], true)
+  const s = createScheduler({ ...d, model })
+  for (let i = 0; i < 8640; i++) await tick(d, s)                     // one real day in 10 s steps
+  const pip = times.filter((t) => t.who === PIP_ID)
+  expect(pip.filter((t) => t.at < t0 + 2 * 3_600_000).length).toBeLessThan(30)
+  expect(pip.filter((t) => t.at >= t0 + 12 * 3_600_000).length).toBeGreaterThan(10)
+  expect(times.filter((t) => t.who === mo.id && t.at >= t0 + 12 * 3_600_000).length).toBeGreaterThan(10)
+}, 60_000)
+test('someone who only overhears is not hurried', async () => {
+  const d = deps([]); const [mo, fen] = withInhabitants(d, 2)
+  const model = byWho({ pip: [say('Mo', 'Hello'), say('Mo', 'Hello again')], [mo.id]: [say('Pip', 'Hi'), say('Pip', 'Hi again')], [fen.id]: [say('anyone', 'Hm.'), say('anyone', 'Hm.')] })
+  const town = { ...d, model }; const s = createScheduler(town)
+  await s.step(5000)                                                   // Pip greets Mo; Mo (most overdue) answers
+  free(d); await tick(d, s, 1000)                                      // Fen's first turn
+  const fenTurns = () => small(town).filter((r) => r.sessionId === fen.id).length
+  expect(fenTurns()).toBe(1)
+  for (let i = 0; i < 12; i++) await tick(d, s)                        // two minutes: Pip speaks to Mo again within Fen's earshot
+  expect(model.requests.filter((r) => r.sessionId === PIP_ID).length).toBeGreaterThanOrEqual(2)
+  expect(fenTurns()).toBe(1)
+})

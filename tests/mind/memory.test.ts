@@ -12,7 +12,7 @@ test('recall prefers memories that share words with what is in front of Pip', ()
   expect(got.map(m => m.id)).toEqual([2, 3])     // the relevant one first, then the newest of the rest
 })
 test('beliefs come from how a move turned out', () => {
-  const r = { success: true, message: '', moodDelta: 0.2, minutes: 1, label: 'eating at the berry bush', heardBy: [], leaves: [], created: null }
+  const r = { success: true, message: '', moodDelta: 0.2, minutes: 1, label: 'eating at the berry bush', heardBy: [], addressed: null, leaves: [], created: null }
   expect(beliefFor(r)).toEqual({ key: 'eating at the berry bush:lifts', text: 'Eating at the berry bush lifts me.' })
   expect(beliefFor({ ...r, success: false, moodDelta: -0.05 })!.text).toBe('Eating at the berry bush keeps going wrong.')
   expect(beliefFor({ ...r, moodDelta: 0.03 })).toBeNull()
