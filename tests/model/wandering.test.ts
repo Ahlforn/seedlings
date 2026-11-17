@@ -29,3 +29,23 @@ test('the wandering stand-in writes a diary line when asked to reflect', async (
   const reply = await wanderingClient().complete({ model: 'fake', system: 'You are Pip.\n\nYou keep a diary.', user: '', sessionId: 'pip', maxTokens: 500 })
   expect(readReflection(reply.text)!.diary.length).toBeGreaterThan(0)
 })
+
+// ---- Stage 2 ----
+import { createScheduler } from '../../src/town/scheduler.ts'
+import { createBudgetKeeper, DEFAULT_PACING } from '../../src/budget/keeper.ts'
+import { deps } from '../town/helpers.ts'
+
+test('a fake town grows a population that talks and leaves notes, and every move it picks is accepted', async () => {
+  const d = deps([]); const model = wanderingClient()
+  const population = () => d.world.characters.filter((c) => c.tier === 'inhabitant').length
+  const budget = createBudgetKeeper(d.store, { monthlyAllowance: 60, periodStartDay: 1, ...DEFAULT_PACING, minIntervalMs: 1000, maxIntervalMs: 1000 }, d.now, population)
+  const s = createScheduler({ ...d, model, budget, config: { ...d.config, daysPerRealDay: 480 } })
+  for (let i = 0; i < 1500 && population() < 2; i++) { d.clock.t += 1000; await s.step(5000) }
+  for (let i = 0; i < 300; i++) { d.clock.t += 1000; await s.step(5000) }
+  expect(population()).toBeGreaterThanOrEqual(2)
+  const turns = d.world.characters.flatMap((c) => d.store.turnsBetween(c.id, 1, d.store.lastTurnId(c.id)))
+  const results = turns.flatMap((t) => JSON.parse(t.results) as { success: boolean; message: string }[])
+  expect(results.filter((r) => !r.success).map((r) => r.message)).toEqual([])
+  expect(turns.some((t) => t.decision.includes('"speak"') && !t.decision.includes('"to":"anyone"'))).toBe(true)
+  expect(turns.some((t) => t.decision.includes('"leave_note"'))).toBe(true)
+}, 30_000)

@@ -54,15 +54,17 @@ function movesOnOffer(system: string): Offered {
 
 /**
  * A stand-in that reads the moves listed in the prompt and picks a plausible one, so a fake run
- * shows Pip eating, sleeping and building. It reports an allowance of 0, so a fake town never
- * runs out of budget.
+ * shows Pip eating, sleeping, building and bringing inhabitants to life, and the inhabitants
+ * talking and leaving notes. It reports an allowance of 0, so a fake town never runs out of budget.
  */
 export function wanderingClient(): ModelClient {
   const walls = ['cream', 'blue', 'sand', 'white', 'yellow', 'brick']
   const roofs = ['pitched', 'pyramid', 'flat', 'dome']
   const purposes = ['home', 'food', 'other']
+  const names = ['Mo', 'Fen', 'Dot', 'Ash', 'Bree', 'Kit', 'Lu', 'Nim', 'Oz', 'Pell', 'Rue', 'Tam']
   let turn = 0
   let built = 0
+  let made = 0
 
   function decide(req: ModelRequest): { consider: string; move: { action: string; params: Record<string, string> } } {
     const offered = movesOnOffer(req.system)
@@ -75,6 +77,20 @@ export function wanderingClient(): ModelClient {
     if (bed && (night || /rest (strong|urgent)/.test(body))) return { consider: 'I can hardly keep my leaves up.', move: { action: 'sleep', params: { target: bed } } }
     const food = first('eat', 'target')
     if (food && /hunger/.test(body)) return { consider: 'Something to eat first.', move: { action: 'eat', params: { target: food } } }
+    const home = first('create_inhabitant', 'home')
+    if (home && turn % 4 === 0 && made < names.length) {
+      const pick = (setting: string) => {
+        const choices = offered.get('create_inhabitant')?.get(setting) ?? []
+        return choices[made % Math.max(1, choices.length)] ?? ''
+      }
+      const name = names[made]
+      const params = {
+        name, kind: 'a small creature', who: `${name} is new here and curious about everything.`, traits: 'curious, quiet',
+        cares_about: 'company', fears: 'the dark', colour: pick('colour'), mark: pick('mark'), home,
+      }
+      made += 1
+      return { consider: 'Someone should live here.', move: { action: 'create_inhabitant', params } }
+    }
     const site = first('work_on', 'target')
     if (site) return { consider: 'It will not build itself.', move: { action: 'work_on', params: { target: site } } }
     const plot = first('start_building', 'site')
@@ -86,7 +102,7 @@ export function wanderingClient(): ModelClient {
           action: 'start_building',
           params: {
             site: plot,
-            purpose: purposes[built % purposes.length],
+            purpose: purposes[(built - 1) % purposes.length],
             name: `House ${built}`,
             about: 'somewhere to be',
             floors: String(1 + (built % 2)),
@@ -101,6 +117,9 @@ export function wanderingClient(): ModelClient {
     }
     const things = (offered.get('look_at')?.get('target') ?? [])
     if (things.length && turn % 3 === 0) return { consider: 'What is that, again?', move: { action: 'look_at', params: { target: things[turn % things.length] } } }
+    const someone = offered.get('speak')?.get('to')?.find((name) => name !== 'anyone')
+    if (someone && turn % 3 === 0) return { consider: 'I should say hello.', move: { action: 'speak', params: { to: someone, text: `Hello, ${someone}.` } } }
+    if (offered.has('leave_note') && turn % 7 === 0) return { consider: 'Someone might come by.', move: { action: 'leave_note', params: { text: 'Was here.' } } }
     if (offered.has('speak') && turn % 5 === 0) return { consider: 'It is quiet here.', move: { action: 'speak', params: { text: 'This will be a town one day.' } } }
     return { consider: 'I wonder what is over there.', move: { action: 'move_to', params: { target: 'wander' } } }
   }
