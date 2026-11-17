@@ -1,0 +1,28 @@
+# systemd unit for running the town on a VPS.
+#
+#   1. Put the project in /opt/seedlings, run `npm ci` and `npm run build:web` there.
+#   2. Create /opt/seedlings/.env from .env.example (chmod 600).
+#   3. Copy this file to /etc/systemd/system/seedlings.service
+#   4. systemctl daemon-reload && systemctl enable --now seedlings
+#
+# Change User, WorkingDirectory and the path to npm if yours differ.
+
+[Unit]
+Description=Seedlings: a small town that lives on its own
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=seedlings
+WorkingDirectory=/opt/seedlings
+EnvironmentFile=/opt/seedlings/.env
+ExecStart=/usr/bin/npm start
+Restart=on-failure
+RestartSec=10
+NoNewPrivileges=true
+ProtectSystem=full
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

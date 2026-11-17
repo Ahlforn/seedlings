@@ -62,3 +62,13 @@ test('listeners hear about every step and can leave', async () => {
   const d = deps([wait]); const s = createScheduler(d); let n = 0
   const off = s.onChange(() => n++); await s.step(5000); off(); await s.step(5000); expect(n).toBe(1)
 })
+test('the first diary entry waits four in-world hours like any other', async () => {
+  const d = deps([wait, wait, wait, wait]); const s = createScheduler(d)
+  for (let turn = 0; turn < 3; turn++) {
+    for (let i = 0; i < 30; i++) await s.step(10_000)                 // 20 in-world minutes: the wait finishes
+    d.clock.t += d.budget.status().intervalMs
+  }
+  for (let i = 0; i < 30; i++) await s.step(10_000)
+  expect(d.store.lastTurnId(PIP_ID)).toBeGreaterThanOrEqual(3)        // three turns, about an hour in
+  expect(d.model.requests).toHaveLength(d.store.lastTurnId(PIP_ID))   // and no reflection was asked for
+})

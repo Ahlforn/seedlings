@@ -26,3 +26,92 @@ export function scriptedClient(replies: Scripted[], loop = false): ModelClient &
     },
   }
 }
+
+type Offered = Map<string, Map<string, string[]>>
+
+/** Reads the moves on offer, and their choices, back out of a system prompt. */
+function movesOnOffer(system: string): Offered {
+  const offered: Offered = new Map()
+  const section = system.split('WHAT YOU CAN DO:')[1]?.split('RESPOND WITH JSON ONLY:')[0] ?? ''
+  let current: Map<string, string[]> | null = null
+  for (const row of section.split('\n')) {
+    const move = /^- (\w+):/.exec(row)
+    if (move) {
+      current = new Map()
+      offered.set(move[1], current)
+      continue
+    }
+    const setting = /^ {4}(\w+): one of (.+)$/.exec(row)
+    if (setting && current) {
+      const choices = setting[2].split(' | ')
+      choices[choices.length - 1] = choices[choices.length - 1].split('. ')[0]
+      current.set(setting[1], choices)
+    }
+  }
+  return offered
+}
+
+/**
+ * A stand-in that reads the moves listed in the prompt and picks a plausible one, so a fake run
+ * shows Pip eating, sleeping and building. It reports an allowance of 0, so a fake town never
+ * runs out of budget.
+ */
+export function wanderingClient(): ModelClient {
+  const walls = ['cream', 'blue', 'sand', 'white', 'yellow', 'brick']
+  const roofs = ['pitched', 'pyramid', 'flat', 'dome']
+  const purposes = ['home', 'food', 'other']
+  let turn = 0
+  let built = 0
+
+  function decide(req: ModelRequest): { consider: string; move: { action: string; params: Record<string, string> } } {
+    const offered = movesOnOffer(req.system)
+    const body = /YOUR BODY: (.*)/.exec(req.user)?.[1] ?? ''
+    const night = /THE TIME: [^\n]*Night/.test(req.user)
+    const first = (move: string, setting: string) => offered.get(move)?.get(setting)?.[0]
+    turn += 1
+
+    const bed = first('sleep', 'target')
+    if (bed && (night || /rest (strong|urgent)/.test(body))) return { consider: 'I can hardly keep my leaves up.', move: { action: 'sleep', params: { target: bed } } }
+    const food = first('eat', 'target')
+    if (food && /hunger/.test(body)) return { consider: 'Something to eat first.', move: { action: 'eat', params: { target: food } } }
+    const site = first('work_on', 'target')
+    if (site) return { consider: 'It will not build itself.', move: { action: 'work_on', params: { target: site } } }
+    const plot = first('start_building', 'site')
+    if (plot && turn % 2 === 0) {
+      built += 1
+      return {
+        consider: 'This spot wants something on it.',
+        move: {
+          action: 'start_building',
+          params: {
+            site: plot,
+            purpose: purposes[built % purposes.length],
+            name: `House ${built}`,
+            about: 'somewhere to be',
+            floors: String(1 + (built % 2)),
+            wall: walls[built % walls.length],
+            roof: roofs[built % roofs.length],
+            roof_colour: built % 2 ? 'red' : 'grey',
+            windows: String(1 + (built % 2)),
+            sign: built % 3 === 0 ? 'PIP' : '',
+          },
+        },
+      }
+    }
+    const things = (offered.get('look_at')?.get('target') ?? [])
+    if (things.length && turn % 3 === 0) return { consider: 'What is that, again?', move: { action: 'look_at', params: { target: things[turn % things.length] } } }
+    if (offered.has('speak') && turn % 5 === 0) return { consider: 'It is quiet here.', move: { action: 'speak', params: { text: 'This will be a town one day.' } } }
+    return { consider: 'I wonder what is over there.', move: { action: 'move_to', params: { target: 'wander' } } }
+  }
+
+  return {
+    async complete(req) {
+      const usage = { allowance: 0, inputTokens: 0, outputTokens: 0, billingSource: 'fake' }
+      if (req.system.includes('You keep a diary')) {
+        return { text: JSON.stringify({ diary: 'Another stretch of the day. I got some things done and I am pleased with them.', memories: [], mind: [], done: [] }), usage }
+      }
+      const { consider, move } = decide(req)
+      return { text: JSON.stringify({ consider, do: [move], because: 'it felt right' }), usage }
+    },
+  }
+}

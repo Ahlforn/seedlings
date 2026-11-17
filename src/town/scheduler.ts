@@ -2,7 +2,7 @@
 
 import { shouldReflect } from '../mind/reflect.ts'
 import { ModelError } from '../model/client.ts'
-import { worldMinutesFor } from '../world/clock.ts'
+import { START_MINUTES, worldMinutesFor } from '../world/clock.ts'
 import { PIP_ID, advance, character } from '../world/world.ts'
 import { performQueued, runReflection, runTurn } from './turn.ts'
 import type { TownDeps, TurnOutcome } from './turn.ts'
@@ -11,7 +11,8 @@ export type Scheduler = {
   /** Advances the town by this much real time. Exposed so tests can drive it. */
   step(realElapsedMs: number): Promise<void>
   start(): void
-  stop(): void
+  /** Stops the loop. Resolves once any step in flight has finished. */
+  stop(): Promise<void>
   onChange(fn: () => void): () => void
   lastThought(): string
 }
@@ -27,13 +28,14 @@ export function createScheduler(deps: TownDeps): Scheduler {
   let finishedSinceDiary = false
   let timer: ReturnType<typeof setTimeout> | null = null
   let running = false
+  let inFlight: Promise<void> = Promise.resolve()
 
   async function afterMove(outcome: TurnOutcome): Promise<void> {
     if (outcome.finishedBuilding) finishedSinceDiary = true
     const last = store.diary(PIP_ID, 1)[0]
     const turnsSinceLast = store.turnsBetween(PIP_ID, (last?.toTurn ?? 0) + 1, store.lastTurnId(PIP_ID)).length
     const due = shouldReflect({
-      minutesSinceLast: world.minutes - (last?.worldMinutes ?? 0),
+      minutesSinceLast: world.minutes - (last?.worldMinutes ?? START_MINUTES),
       turnsSinceLast,
       buildingFinished: finishedSinceDiary,
       goingToSleep: outcome.wentToSleep,
@@ -80,7 +82,8 @@ export function createScheduler(deps: TownDeps): Scheduler {
       let last = Date.now()
       const tick = async () => {
         const now = Date.now()
-        await step(now - last)
+        inFlight = step(now - last)
+        await inFlight
         last = now
         if (running) timer = setTimeout(tick, config.tickMs)
       }
@@ -90,6 +93,7 @@ export function createScheduler(deps: TownDeps): Scheduler {
       running = false
       if (timer) clearTimeout(timer)
       timer = null
+      return inFlight
     },
     onChange(fn) {
       listeners.add(fn)
