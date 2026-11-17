@@ -30,7 +30,8 @@ function take(state: StateView): void {
   showState(state)
   paint()
   // The diary only changes when Pip has acted, so it is refetched when what Pip is doing changes.
-  const key = `${state.day}|${state.pip.doing}|${state.pip.thought}`
+  const pip = state.characters.find((c) => c.tier === 'origin')
+  const key = `${state.day}|${pip?.doing}|${pip?.thought}`
   if (key !== lastDiaryKey) {
     lastDiaryKey = key
     void showDiary()

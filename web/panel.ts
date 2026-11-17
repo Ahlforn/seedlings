@@ -25,9 +25,11 @@ export function showState(state: StateView): void {
   fill.style.width = `${Math.round(state.budget.leftToday * 100)}%`
   fill.classList.toggle('stopped', !state.budget.canThink || state.budget.trouble !== '')
 
-  byId('doing').textContent = state.pip.doing === 'idle' ? 'Not doing anything in particular.' : `Pip is ${state.pip.doing}.`
-  byId('thought').textContent = state.pip.thought ? `“${state.pip.thought}”` : 'Nothing yet.'
-  byId('mind').replaceChildren(...state.pip.onMind.map((text) => el('li', text)))
+  const pip = state.characters.find((c) => c.tier === 'origin')
+  if (!pip) return
+  byId('doing').textContent = pip.doing === 'idle' ? 'Not doing anything in particular.' : `Pip is ${pip.doing}.`
+  byId('thought').textContent = pip.thought ? `“${pip.thought}”` : 'Nothing yet.'
+  byId('mind').replaceChildren(...pip.onMind.map((text) => el('li', text)))
 }
 
 function traceNode(trace: TraceView): HTMLElement {

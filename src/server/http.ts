@@ -18,6 +18,7 @@ const COOKIE = 'seedlings_session'
 const SAID_FOR_MINUTES = 30
 const DIARY_PAGE = 20
 const ON_MIND = 3
+const EVENTS_SHOWN = 20
 const MAX_LOGIN_BODY = 10_000
 const WRONG_PASSWORD_DELAY_MS = 300
 
@@ -53,10 +54,9 @@ button{background:#6fbf5a;border-color:#6fbf5a;color:#16212b;cursor:pointer}</st
 
 const TROUBLE_MAX = 160
 
-export function stateView(world: World, store: Store, budget: BudgetKeeper, thought: string, trouble = ''): StateView {
+export function stateView(world: World, store: Store, budget: BudgetKeeper, thoughtOf: (id: string) => string, trouble = ''): StateView {
   const clock = clockOf(world.minutes)
-  const status = budget.status()
-  const pip = world.characters.find((c) => c.id === PIP_ID)
+  const status = budget.status('town')
   return {
     clock: clock.label,
     day: clock.day,
@@ -65,15 +65,23 @@ export function stateView(world: World, store: Store, budget: BudgetKeeper, thou
     size: world.size,
     features: world.features,
     buildings: world.buildings,
+    notes: world.notes,
     characters: world.characters.map((c) => ({
       id: c.id,
       name: c.name,
+      tier: c.tier,
+      look: c.look,
+      home: world.buildings.find((b) => b.id === c.homeId)?.name ?? '',
       at: c.at,
       asleep: c.asleep,
-      doing: c.doing,
+      doing: c.asleep ? 'asleep' : c.doing,
       said: c.said && world.minutes - c.saidAt <= SAID_FOR_MINUTES ? c.said : '',
       mood: c.body.mood,
+      thought: thoughtOf(c.id),
+      onMind: store.openMindItems(c.id).slice(0, ON_MIND).map((item) => item.text),
     })),
+    events: world.events.slice(-EVENTS_SHOWN).reverse().map((e) => ({ clock: clockOf(e.minute).label, text: e.text })),
+    population: { count: world.characters.filter((c) => c.tier === 'inhabitant').length, limit: world.populationLimit },
     budget: {
       leftToday: status.leftTodayFraction,
       canThink: status.canThink,
@@ -81,18 +89,14 @@ export function stateView(world: World, store: Store, budget: BudgetKeeper, thou
       reason: status.canThink && trouble ? 'trouble reaching the model, trying again' : REASONS[status.reason],
       trouble: trouble.slice(0, TROUBLE_MAX),
     },
-    pip: {
-      doing: pip?.asleep ? 'asleep' : (pip?.doing ?? ''),
-      thought,
-      onMind: store.openMindItems(PIP_ID).slice(0, ON_MIND).map((item) => item.text),
-    },
   }
 }
 
 const diaryView = (entry: DiaryEntry): DiaryView => ({ id: entry.id, clock: clockOf(entry.worldMinutes).label, text: entry.text })
 
-function traceView(store: Store, entry: DiaryEntry): TraceView {
+function traceView(store: Store, world: World, entry: DiaryEntry): TraceView {
   return {
+    name: world.characters.find((c) => c.id === entry.characterId)?.name ?? '',
     entry: diaryView(entry),
     turns: store.turnsBetween(entry.characterId, entry.fromTurn, entry.toTurn).map((turn) => {
       const decision = safeParse(turn.decision) as { consider?: string; moves?: TraceView['turns'][number]['moves']; because?: string } | null
@@ -150,7 +154,7 @@ export function createServer(deps: {
 }): Server {
   const sessions = new Set<string>()
   const staticRoot = resolve(deps.staticDir)
-  const state = () => stateView(deps.world(), deps.store, deps.budget, deps.scheduler.lastThought(), deps.scheduler.trouble())
+  const state = () => stateView(deps.world(), deps.store, deps.budget, (id) => deps.scheduler.lastThought(id), deps.scheduler.trouble())
 
   function signedIn(req: IncomingMessage): boolean {
     for (const part of (req.headers.cookie ?? '').split(';')) {
@@ -242,7 +246,7 @@ export function createServer(deps: {
     if (rawPath === '/api/trace') {
       const entry = deps.store.diaryEntry(Number(params.get('diary')))
       if (!entry) return sendJson(res, 404, { error: 'no such diary entry' })
-      return sendJson(res, 200, traceView(deps.store, entry))
+      return sendJson(res, 200, traceView(deps.store, deps.world(), entry))
     }
     if (rawPath.startsWith('/api/')) return sendJson(res, 404, { error: 'not found' })
     return serveStatic(rawPath, res)

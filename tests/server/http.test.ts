@@ -8,18 +8,21 @@ import { createServer } from '../../src/server/http.ts'
 import { openStore } from '../../src/store/store.ts'
 import type { Store } from '../../src/store/store.ts'
 import { createWorld } from '../../src/world/world.ts'
+import type { World } from '../../src/shared/types.ts'
+import { addInhabitant } from '../world/helpers.ts'
 import { createBudgetKeeper, DEFAULT_PACING } from '../../src/budget/keeper.ts'
 
-let server: Server; let store: Store; let base = ''; let port = 0; let cookie = ''; let trouble = ''
+let server: Server; let store: Store; let world: World; let base = ''; let port = 0; let cookie = ''; let trouble = ''
+let thoughts: Record<string, string> = {}
 const listeners = new Set<() => void>()
 
 beforeEach(async () => {
-  store = openStore(':memory:'); const world = createWorld(1); cookie = ''; trouble = ''; listeners.clear()
+  store = openStore(':memory:'); world = createWorld(1); cookie = ''; trouble = ''; thoughts = {}; listeners.clear()
   const budget = createBudgetKeeper(store, { monthlyAllowance: 60, periodStartDay: 1, ...DEFAULT_PACING }, () => Date.UTC(2026, 10, 1))
   const root = mkdtempSync(join(tmpdir(), 'seedlings-')); mkdirSync(join(root, 'web'))
   writeFileSync(join(root, 'web', 'index.html'), '<p>town</p>'); writeFileSync(join(root, 'secret.txt'), 'top secret')
   server = createServer({ world: () => world, store, budget, password: 'secret', staticDir: join(root, 'web'),
-    scheduler: { onChange: (fn) => { listeners.add(fn); return () => { listeners.delete(fn) } }, lastThought: () => 'hm', trouble: () => trouble } })
+    scheduler: { onChange: (fn) => { listeners.add(fn); return () => { listeners.delete(fn) } }, lastThought: (id = 'pip') => thoughts[id] ?? 'hm', trouble: () => trouble } })
   await new Promise<void>((resolve) => server.listen(0, resolve))
   port = (server.address() as AddressInfo).port; base = `http://localhost:${port}`
 })
@@ -67,8 +70,9 @@ test('a made-up session cookie is not accepted', async () => {
 test('state shows the clock, the plot, Pip and the budget', async () => {
   const s = await getJson('/api/state')
   expect(s).toMatchObject({ clock: '06:00, day 1', weather: 'dry', size: 24,
-    budget: { canThink: true, reason: 'thinking' }, pip: { doing: 'idle', thought: 'hm' } })
-  expect(s.characters[0]).toMatchObject({ name: 'Pip' }); expect(s.features.length).toBe(9)
+    budget: { canThink: true, reason: 'thinking' }, population: { count: 0, limit: 0 } })
+  expect(s.characters[0]).toMatchObject({ name: 'Pip', tier: 'origin', doing: 'idle', thought: 'hm', home: '', look: null })
+  expect(s.features.length).toBe(9); expect(s.notes).toEqual([])
 })
 // Review Focus 4
 test('a halt is explained in words', async () => {
@@ -115,4 +119,32 @@ test('static files cannot escape the folder', async () => {
 test('trouble reaching the model is shown instead of "thinking"', async () => {
   trouble = 'The model answered 401: bad key'
   expect((await getJson('/api/state')).budget).toMatchObject({ canThink: true, reason: 'trouble reaching the model, trying again', trouble: 'The model answered 401: bad key' })
+})
+
+// ---- Stage 2 ----
+test('the state shows every character with its own thought and mind', async () => {
+  world.buildings.push({ id: 'b1', name: 'Burrow', purpose: 'home', about: '', at: { x: 2, y: 2 }, workLeft: 0, workTotal: 3, startedDay: 1,
+    recipe: { footprint: 1, floors: 1, wall: 'cream', roof: 'flat', roofColour: 'red', door: true, windows: 0, sign: '', extras: [] } })
+  const mo = addInhabitant(world, 'Mo', { x: 2, y: 2 }); mo.homeId = 'b1'; mo.look = { colour: 'blue', mark: 'antennae' }
+  mo.asleep = true; world.populationLimit = 3
+  thoughts[mo.id] = 'quiet here'
+  store.addMindItem({ characterId: mo.id, kind: 'want', text: 'a friend', sinceMinutes: 0 })
+  const s = await getJson('/api/state')
+  expect(s.characters[1]).toMatchObject({ id: mo.id, name: 'Mo', tier: 'inhabitant', home: 'Burrow', look: { colour: 'blue', mark: 'antennae' },
+    doing: 'asleep', thought: 'quiet here', onMind: ['a friend'] })
+  expect(s.population).toEqual({ count: 1, limit: 3 })
+})
+test('town happenings come newest first, with their time', async () => {
+  world.events.push({ minute: 400, text: 'first' }, { minute: 420, text: 'second' }, { minute: 430, text: 'third' })
+  const s = await getJson('/api/state')
+  expect(s.events[0]).toEqual({ clock: '07:10, day 1', text: 'third' }); expect(s.events).toHaveLength(3)
+})
+test('an inhabitant diary and its trace are served by character', async () => {
+  const mo = addInhabitant(world, 'Mo', { x: 2, y: 2 })
+  const t = store.addTurn(turn({ characterId: mo.id }))
+  const id = store.addDiary({ characterId: mo.id, worldMinutes: 400, text: 'Quiet.', fromTurn: t, toTurn: t })
+  store.addDiary({ characterId: 'pip', worldMinutes: 400, text: 'Busy.', fromTurn: 0, toTurn: 0 })
+  expect((await getJson(`/api/diary?character=${mo.id}`)).map((e: { text: string }) => e.text)).toEqual(['Quiet.'])
+  const trace = await getJson(`/api/trace?diary=${id}`)
+  expect(trace.name).toBe('Mo'); expect(trace.turns).toHaveLength(1)
 })

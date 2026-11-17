@@ -95,16 +95,37 @@ export type StateView = {
   size: number
   features: Feature[]
   buildings: Building[]
-  characters: { id: string; name: string; at: Tile; asleep: boolean; doing: string; said: string; mood: number }[]
+  notes: Note[]
+  /** Pip first, then the inhabitants in the order they arrived */
+  characters: {
+    id: string
+    name: string
+    tier: 'origin' | 'inhabitant'
+    look: Look | null
+    /** the name of their home, or empty */
+    home: string
+    at: Tile
+    asleep: boolean
+    /** 'asleep' while asleep */
+    doing: string
+    said: string
+    mood: number
+    thought: string
+    onMind: string[]
+  }[]
+  /** newest first */
+  events: { clock: string; text: string }[]
+  population: { count: number; limit: number }
   /** trouble is why thinking or saving is failing right now, or empty */
   budget: { leftToday: number; canThink: boolean; reason: string; trouble: string }
-  pip: { doing: string; thought: string; onMind: string[] }
 }
 
 export type DiaryView = { id: number; clock: string; text: string }
 
 /** A diary entry and the turns it was written about. */
 export type TraceView = {
+  /** whose diary it is */
+  name: string
   entry: DiaryView
   turns: {
     clock: string

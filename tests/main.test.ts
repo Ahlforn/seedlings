@@ -10,7 +10,7 @@ test('a fake town starts, serves state, and stops cleanly', async () => {
   await new Promise(r => setTimeout(r, 200))
   const state = await (await fetch(`http://localhost:${town.port}/api/state`, { headers: { cookie } })).json() as any
   expect(state.characters[0].name).toBe('Pip')
-  expect(state.pip.thought.length).toBeGreaterThan(0)                  // Pip has had at least one turn
+  expect(state.characters[0].thought.length).toBeGreaterThan(0)                 // Pip has had at least one turn
   await town.stop()
 })
 
