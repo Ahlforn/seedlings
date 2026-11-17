@@ -1,8 +1,8 @@
 /** The watch page: loads the town's state, follows the live stream, and redraws. */
 
 import type { StateView } from '../src/shared/types.ts'
-import { drawTown } from './draw.ts'
-import { showDiary, showState } from './panel.ts'
+import { characterAt, drawTown } from './draw.ts'
+import { onSelect, select, selectedId, showDiary, showState } from './panel.ts'
 
 const RECONNECT_MS = 3000
 const canvas = document.getElementById('town') as HTMLCanvasElement
@@ -22,21 +22,42 @@ function paint(): void {
   const ctx = canvas.getContext('2d')
   if (!ctx) return
   ctx.setTransform(ratio, 0, 0, ratio, 0, 0)
-  drawTown(ctx, latest, width, height)
+  drawTown(ctx, latest, width, height, selectedId())
 }
 
 function take(state: StateView): void {
   latest = state
   showState(state)
   paint()
-  // The diary only changes when Pip has acted, so it is refetched when what Pip is doing changes.
-  const pip = state.characters.find((c) => c.tier === 'origin')
-  const key = `${state.day}|${pip?.doing}|${pip?.thought}`
+  refreshDiary()
+}
+
+/** A diary only changes when its writer has acted, so it is refetched when what they are doing changes. */
+function refreshDiary(): void {
+  if (!latest) return
+  const id = selectedId()
+  const who = latest.characters.find((c) => c.id === id)
+  const key = `${id}|${latest.day}|${who?.doing}|${who?.thought}`
   if (key !== lastDiaryKey) {
     lastDiaryKey = key
     void showDiary()
   }
 }
+
+onSelect(() => {
+  paint()
+  refreshDiary()
+})
+
+canvas.addEventListener('click', (event) => {
+  if (!latest) return
+  const box = canvas.getBoundingClientRect()
+  const id = characterAt(latest, { x: event.clientX - box.left, y: event.clientY - box.top }, canvas.clientWidth, canvas.clientHeight)
+  if (!id) return
+  select(id)
+  paint()
+  refreshDiary()
+})
 
 function follow(): void {
   const stream = new EventSource('/api/stream')

@@ -22,16 +22,27 @@
         <canvas id="town"></canvas>
         <p id="status" class="status" role="status"></p>
       </section>
-      <aside class="panel" aria-label="Pip">
-        <h1>Pip</h1>
-        <h2>Right now</h2>
-        <p id="doing"></p>
-        <h2>On Pip's mind</h2>
-        <p id="thought" class="thought"></p>
-        <ul id="mind" class="mind"></ul>
-        <h2>Diary</h2>
-        <p class="quiet hint">Open an entry to see what Pip saw and thought.</p>
-        <ol id="diary" class="diary"></ol>
+      <aside class="panel" aria-label="The town's people">
+        <nav id="tabs" class="tabs" aria-label="Who to follow"></nav>
+        <div id="person">
+          <h1 id="name">Pip</h1>
+          <h2>Right now</h2>
+          <p id="doing"></p>
+          <h2 id="mind-heading">On Pip's mind</h2>
+          <p id="thought" class="thought"></p>
+          <ul id="mind" class="mind"></ul>
+          <h2 id="home-heading" hidden>Home</h2>
+          <p id="home" hidden></p>
+          <h2>Diary</h2>
+          <p id="hint" class="quiet hint">Open an entry to see what Pip saw and thought.</p>
+          <ol id="diary" class="diary"></ol>
+        </div>
+        <div id="townview" hidden>
+          <h1>Town</h1>
+          <p id="population" class="quiet"></p>
+          <h2>What has been happening</h2>
+          <ol id="events" class="events"></ol>
+        </div>
       </aside>
     </main>
     <script type="module" src="./main.ts"></script>

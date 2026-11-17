@@ -1,8 +1,8 @@
 /** Paints the town on a canvas. All text reaches the canvas through fillText, never as markup. */
 
-import { TILE_H, TILE_W, buildingFaces, drawOrder, tileToScreen } from '../src/shared/iso.ts'
+import { PALETTE, TILE_H, TILE_W, buildingFaces, drawOrder, tileToScreen } from '../src/shared/iso.ts'
 import type { Face, Point } from '../src/shared/iso.ts'
-import type { Building, Feature, StateView, Tile } from '../src/shared/types.ts'
+import type { Building, Feature, Look, Note, StateView, Tile } from '../src/shared/types.ts'
 
 type Person = StateView['characters'][number]
 type Drawable = { at: Tile; draw(): void }
@@ -162,6 +162,61 @@ function seedling(ctx: CanvasRenderingContext2D, at: Point, asleep: boolean): vo
   }
 }
 
+/** An inhabitant: a small round creature in its colour, with its one mark. */
+function critter(ctx: CanvasRenderingContext2D, at: Point, look: Look | null, asleep: boolean): void {
+  const colour = PALETTE[look?.colour ?? 'sand']
+  const r = 9
+  const cy = at.y - r - 2
+  shadow(ctx, at, 9, 3)
+  const mark = look?.mark
+  if (mark === 'tail') {
+    ctx.beginPath(); ctx.moveTo(at.x + r - 2, cy + 4); ctx.quadraticCurveTo(at.x + r + 9, cy + 2, at.x + r + 6, cy - 7)
+    ctx.strokeStyle = colour.dark; ctx.lineWidth = 3; ctx.stroke()
+  }
+  if (mark === 'ears') {
+    for (const side of [-1, 1]) {
+      ctx.beginPath(); ctx.moveTo(at.x + side * 3, cy - r + 2); ctx.lineTo(at.x + side * 8, cy - r - 6); ctx.lineTo(at.x + side * 9, cy - r + 4)
+      ctx.closePath(); ctx.fillStyle = colour.dark; ctx.fill()
+    }
+  }
+  if (mark === 'antennae') {
+    ctx.strokeStyle = INK; ctx.lineWidth = 1
+    for (const side of [-1, 1]) {
+      ctx.beginPath(); ctx.moveTo(at.x + side * 3, cy - r + 1); ctx.lineTo(at.x + side * 6, cy - r - 8); ctx.stroke()
+      ctx.beginPath(); ctx.arc(at.x + side * 6, cy - r - 8, 1.6, 0, Math.PI * 2); ctx.fillStyle = INK; ctx.fill()
+    }
+  }
+  ctx.beginPath(); ctx.arc(at.x, cy, r, 0, Math.PI * 2)
+  ctx.fillStyle = colour.light; ctx.fill(); ctx.strokeStyle = colour.dark; ctx.lineWidth = 1.2; ctx.stroke()
+  if (mark === 'spots') {
+    for (const [dx, dy] of [[-4, 3], [3, 5], [5, -1]]) { ctx.beginPath(); ctx.arc(at.x + dx, cy + dy, 1.5, 0, Math.PI * 2); ctx.fillStyle = colour.dark; ctx.fill() }
+  }
+  if (mark === 'scarf') { ctx.fillStyle = PALETTE.red.light; ctx.fillRect(at.x - r + 1, cy + 3, 2 * r - 2, 3) }
+  if (mark === 'hat') {
+    ctx.fillStyle = '#3b3b48'; ctx.fillRect(at.x - 7, cy - r - 1, 14, 2.5); ctx.fillRect(at.x - 4, cy - r - 6, 8, 5)
+  }
+  ctx.fillStyle = INK; ctx.strokeStyle = INK; ctx.lineWidth = 1
+  for (const side of [-1, 1]) {
+    ctx.beginPath()
+    if (asleep) { ctx.moveTo(at.x + side * 3.5 - 1.5, cy - 1); ctx.lineTo(at.x + side * 3.5 + 1.5, cy - 1); ctx.stroke() }
+    else { ctx.arc(at.x + side * 3.5, cy - 1, 1.3, 0, Math.PI * 2); ctx.fill() }
+  }
+  if (asleep) {
+    ctx.font = '10px system-ui, sans-serif'; ctx.textAlign = 'left'; ctx.fillStyle = '#e8eef2'
+    ctx.fillText('z', at.x + 9, cy - r - 2)
+  }
+}
+
+/** A note: a small folded paper on the ground. */
+function note(ctx: CanvasRenderingContext2D, n: Note, origin: Point): void {
+  const c = centreOf(n.at, origin)
+  const x = c.x - 14
+  const y = c.y + 2
+  ctx.fillStyle = '#fff8e6'; ctx.strokeStyle = 'rgba(0,0,0,0.3)'; ctx.lineWidth = 1
+  ctx.fillRect(x, y, 9, 7); ctx.strokeRect(x, y, 9, 7)
+  ctx.beginPath(); ctx.moveTo(x + 6, y); ctx.lineTo(x + 9, y + 3); ctx.stroke()
+}
+
 function bubble(ctx: CanvasRenderingContext2D, at: Point, said: string): void {
   const text = said.length > BUBBLE_MAX ? `${said.slice(0, BUBBLE_MAX - 1)}…` : said
   ctx.font = '11px system-ui, sans-serif'
@@ -179,6 +234,15 @@ function bubble(ctx: CanvasRenderingContext2D, at: Point, said: string): void {
   ctx.fillText(text, x + 7, y + 10.5)
 }
 
+/** A soft ring on the ground under whoever is selected. */
+function ring(ctx: CanvasRenderingContext2D, at: Point): void {
+  ctx.beginPath()
+  ctx.ellipse(at.x, at.y, 15, 6, 0, 0, Math.PI * 2)
+  ctx.strokeStyle = 'rgba(255,248,214,0.85)'
+  ctx.lineWidth = 2
+  ctx.stroke()
+}
+
 /** Where a character is shown: just in front of whatever shares its tile, so it is never hidden inside it. */
 function standing(c: Person, state: StateView): Tile {
   for (const b of state.buildings) {
@@ -191,15 +255,43 @@ function standing(c: Person, state: StateView): Tile {
   return c.at
 }
 
-export function drawTown(ctx: CanvasRenderingContext2D, state: StateView, width: number, height: number): void {
-  ctx.clearRect(0, 0, width, height)
+/** Where each character is drawn. Those sharing a spot stand side by side rather than on top of each other. */
+function placements(state: StateView): { c: Person; at: Tile }[] {
+  const seen = new Map<string, number>()
+  return state.characters.map((c) => {
+    const spot = standing(c, state)
+    const key = `${spot.x},${spot.y}`
+    const n = seen.get(key) ?? 0
+    seen.set(key, n + 1)
+    const shift = n === 0 ? 0 : (n % 2 === 1 ? 1 : -1) * Math.ceil(n / 2) * 0.45
+    return { c, at: { x: spot.x + shift, y: spot.y - shift } }
+  })
+}
 
-  // The view follows the first character (Pip), so the town stays readable at any plot size.
+/** The view follows the first character (Pip), so the town stays readable at any plot size. */
+export function originFor(state: StateView, width: number, height: number): Point {
   const focusOn = state.characters[0] ? standing(state.characters[0], state) : { x: state.size / 2, y: state.size / 2 }
   const focus = centreOf(focusOn, { x: 0, y: 0 })
-  const origin = { x: width / 2 - focus.x, y: height / 2 - focus.y + 20 }
+  return { x: width / 2 - focus.x, y: height / 2 - focus.y + 20 }
+}
+
+/** The id of the character drawn under a point on the canvas, the front-most one first, or null. */
+export function characterAt(state: StateView, p: Point, width: number, height: number): string | null {
+  const origin = originFor(state, width, height)
+  for (const { c, at } of drawOrder(placements(state)).reverse()) {
+    const foot = centreOf(at, origin)
+    const tall = c.tier === 'origin' ? 38 : 26
+    if (Math.abs(p.x - foot.x) <= 15 && p.y <= foot.y + 6 && p.y >= foot.y - tall) return c.id
+  }
+  return null
+}
+
+export function drawTown(ctx: CanvasRenderingContext2D, state: StateView, width: number, height: number, selected = ''): void {
+  ctx.clearRect(0, 0, width, height)
+  const origin = originFor(state, width, height)
 
   ground(ctx, state.size, origin)
+  for (const n of state.notes) note(ctx, n, origin)
 
   const things: Drawable[] = [
     ...state.features.map((f) => ({ at: f.at, draw: () => feature(ctx, f, origin) })),
@@ -207,13 +299,18 @@ export function drawTown(ctx: CanvasRenderingContext2D, state: StateView, width:
       at: { x: b.at.x + b.recipe.footprint - 1, y: b.at.y + b.recipe.footprint - 1 },
       draw: () => building(ctx, b, origin),
     })),
-    ...state.characters.map((c) => {
-      const at = standing(c, state)
-      return { at: { x: at.x + 0.01, y: at.y + 0.01 }, draw: () => seedling(ctx, centreOf(at, origin), c.asleep) }
+    ...placements(state).map(({ c, at }) => {
+      const draw = () => {
+        const foot = centreOf(at, origin)
+        if (c.id === selected) ring(ctx, foot)
+        if (c.tier === 'origin') seedling(ctx, foot, c.asleep)
+        else critter(ctx, foot, c.look, c.asleep)
+      }
+      return { at: { x: at.x + 0.01, y: at.y + 0.01 }, draw }
     }),
   ]
   for (const thing of drawOrder(things)) thing.draw()
-  for (const c of state.characters) if (c.said) bubble(ctx, centreOf(standing(c, state), origin), c.said)
+  for (const { c, at } of placements(state)) if (c.said) bubble(ctx, centreOf(at, origin), c.said)
 
   if (state.weather !== 'dry') {
     const streaks = state.weather === 'a thin rain' ? 60 : state.weather === 'raining hard' ? 150 : 260

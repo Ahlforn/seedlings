@@ -2,7 +2,11 @@
 
 import type { DiaryView, StateView, TraceView } from '../src/shared/types.ts'
 
+type Person = StateView['characters'][number]
+
 const byId = (id: string) => document.getElementById(id) as HTMLElement
+const TOWN = 'town'
+const SELECTED_KEY = 'seedlings:selected'
 
 function el<K extends keyof HTMLElementTagNameMap>(tag: K, text = '', className = ''): HTMLElementTagNameMap[K] {
   const node = document.createElement(tag)
@@ -11,12 +15,71 @@ function el<K extends keyof HTMLElementTagNameMap>(tag: K, text = '', className 
   return node
 }
 
+function remembered(): string {
+  try {
+    return localStorage.getItem(SELECTED_KEY) ?? 'pip'
+  } catch {
+    return 'pip'
+  }
+}
+
+/** Who the panel is about: a character's id, or 'town'. */
+let selected = remembered()
+let latest: StateView | null = null
+
+/** The character the panel shows, falling back to Pip when the selected one is gone. Null on the Town tab. */
+function shown(state: StateView): Person | null {
+  if (selected === TOWN) return null
+  return state.characters.find((c) => c.id === selected) ?? state.characters.find((c) => c.tier === 'origin') ?? null
+}
+
+/** The id whose diary should be on show, or '' on the Town tab. */
+export function selectedId(): string {
+  return latest ? (shown(latest)?.id ?? '') : selected === TOWN ? '' : selected
+}
+
+export function select(id: string): void {
+  if (id === selected) return
+  selected = id
+  try {
+    localStorage.setItem(SELECTED_KEY, id)
+  } catch {
+    // only a convenience
+  }
+  openTraces.clear()
+  older = []
+  moreToLoad = false
+  newest = []
+  if (latest) showState(latest)
+}
+
+let onPick: (id: string) => void = select
+/** Lets the page hear about tab clicks, so it can refetch the diary and redraw the selection. */
+export function onSelect(fn: (id: string) => void): void {
+  onPick = (id) => { select(id); fn(id) }
+}
+
+function tabs(state: StateView): void {
+  const current = shown(state)?.id ?? TOWN
+  const button = (id: string, label: string) => {
+    const b = el('button', label, 'tab')
+    b.type = 'button'
+    b.setAttribute('aria-pressed', String(id === current))
+    b.addEventListener('click', () => onPick(id))
+    return b
+  }
+  byId('tabs').replaceChildren(...state.characters.map((c) => button(c.id, c.name)), button(TOWN, 'Town'))
+}
+
 export function showState(state: StateView): void {
+  latest = state
   byId('clock').textContent = state.clock
   byId('weather').textContent = state.weather
   const finished = state.buildings.filter((b) => b.workLeft === 0).length
   const sites = state.buildings.length - finished
-  byId('count').textContent = `${finished} ${finished === 1 ? 'building' : 'buildings'}${sites ? `, ${sites} being built` : ''}`
+  const people = state.population.count
+  byId('count').textContent =
+    `${finished} ${finished === 1 ? 'building' : 'buildings'}${sites ? `, ${sites} being built` : ''}, ${people} ${people === 1 ? 'inhabitant' : 'inhabitants'}`
 
   byId('reason').textContent = state.budget.reason
   byId('reason').title = state.budget.trouble
@@ -25,11 +88,29 @@ export function showState(state: StateView): void {
   fill.style.width = `${Math.round(state.budget.leftToday * 100)}%`
   fill.classList.toggle('stopped', !state.budget.canThink || state.budget.trouble !== '')
 
-  const pip = state.characters.find((c) => c.tier === 'origin')
-  if (!pip) return
-  byId('doing').textContent = pip.doing === 'idle' ? 'Not doing anything in particular.' : `Pip is ${pip.doing}.`
-  byId('thought').textContent = pip.thought ? `“${pip.thought}”` : 'Nothing yet.'
-  byId('mind').replaceChildren(...pip.onMind.map((text) => el('li', text)))
+  tabs(state)
+  const who = shown(state)
+  byId('person').hidden = who === null
+  byId('townview').hidden = who !== null
+  if (who === null) {
+    const { count, limit } = state.population
+    byId('population').textContent = `${count} ${count === 1 ? 'inhabitant' : 'inhabitants'}, of ${limit} the town can support right now.`
+    byId('events').replaceChildren(...state.events.map((e) => {
+      const item = el('li')
+      item.append(el('time', e.clock), el('span', e.text))
+      return item
+    }))
+    return
+  }
+  byId('name').textContent = who.name
+  byId('doing').textContent = who.doing === 'idle' ? 'Not doing anything in particular.' : `${who.name} is ${who.doing}.`
+  byId('mind-heading').textContent = `On ${who.name}'s mind`
+  byId('thought').textContent = who.thought ? `“${who.thought}”` : 'Nothing yet.'
+  byId('mind').replaceChildren(...who.onMind.map((text) => el('li', text)))
+  byId('home-heading').hidden = who.tier === 'origin'
+  byId('home').hidden = who.tier === 'origin'
+  byId('home').textContent = who.home || 'No home.'
+  byId('hint').textContent = `Open an entry to see what ${who.name} saw and thought.`
 }
 
 function traceNode(trace: TraceView): HTMLElement {
@@ -49,7 +130,7 @@ function traceNode(trace: TraceView): HTMLElement {
     if (turn.because) row('Why', turn.because)
     for (const result of turn.results) row(result.success ? 'It worked' : 'It did not work', result.message, result.success ? '' : 'failed')
     const saw = el('details')
-    saw.append(el('summary', 'What Pip saw'), el('dd', turn.saw))
+    saw.append(el('summary', `What ${trace.name || 'they'} saw`), el('dd', turn.saw))
     list.append(saw)
     box.append(list)
   }
@@ -70,6 +151,7 @@ const openTraces = new Set<number>()
 /** Entries older than the newest page, fetched when the reader asks for them. */
 let older: DiaryView[] = []
 let moreToLoad = false
+let newest: DiaryView[] = []
 
 function entryNode(entry: DiaryView): HTMLElement {
   const item = el('li')
@@ -88,9 +170,9 @@ function entryNode(entry: DiaryView): HTMLElement {
     if (trace && openTraces.has(entry.id) && !item.querySelector('.trace')) item.append(traceNode(trace))
   }
   button.addEventListener('click', () => {
-    const shown = item.querySelector('.trace')
-    if (shown) {
-      shown.remove()
+    const shownTrace = item.querySelector('.trace')
+    if (shownTrace) {
+      shownTrace.remove()
       openTraces.delete(entry.id)
     } else {
       openTraces.add(entry.id)
@@ -102,10 +184,10 @@ function entryNode(entry: DiaryView): HTMLElement {
   return item
 }
 
-function render(entries: DiaryView[]): void {
+function render(entries: DiaryView[], name: string): void {
   const list = byId('diary')
   if (entries.length === 0) {
-    list.replaceChildren(el('li', 'Pip has not written anything yet.', 'quiet'))
+    list.replaceChildren(el('li', `${name} has not written anything yet.`, 'quiet'))
     return
   }
   const items = entries.map(entryNode)
@@ -120,22 +202,27 @@ function render(entries: DiaryView[]): void {
   list.replaceChildren(...items)
 }
 
-let newest: DiaryView[] = []
+const nameOf = (id: string) => latest?.characters.find((c) => c.id === id)?.name ?? 'They'
 
 async function loadOlder(beforeId: number): Promise<void> {
-  const page = await getJson<DiaryView[]>(`/api/diary?character=pip&before=${beforeId}`)
-  if (!page) return
+  const id = selectedId()
+  if (!id) return
+  const page = await getJson<DiaryView[]>(`/api/diary?character=${encodeURIComponent(id)}&before=${beforeId}`)
+  if (!page || id !== selectedId()) return
   older = [...older, ...page.filter((entry) => !older.some((known) => known.id === entry.id))]
   moreToLoad = page.length === PAGE
-  render([...newest, ...older])
+  render([...newest, ...older], nameOf(id))
 }
 
 export async function showDiary(): Promise<void> {
-  const page = await getJson<DiaryView[]>('/api/diary?character=pip')
-  if (!page) return
+  const id = selectedId()
+  if (!id) return
+  const page = await getJson<DiaryView[]>(`/api/diary?character=${encodeURIComponent(id)}`)
+  // The reader may have picked someone else while this was on its way.
+  if (!page || id !== selectedId()) return
   newest = page
   const oldestShown = page.length ? page[page.length - 1].id : 0
   older = older.filter((entry) => entry.id < oldestShown)
   if (older.length === 0) moreToLoad = page.length === PAGE
-  render([...newest, ...older])
+  render([...newest, ...older], nameOf(id))
 }
