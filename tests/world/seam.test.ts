@@ -101,3 +101,11 @@ test('sleep is not offered to a rested character at night', () => {
   character(w, PIP_ID).body.tiredness = 0.2
   expect(names(observe(w, PIP_ID))).toContain('sleep')
 })
+// Found on the first live run: the model wrote "berry bush" and "middle of the plot", dropping "the".
+test('a place named without its "the" is still understood', () => {
+  const w = createWorld(1); character(w, PIP_ID).body.hunger = 0.7
+  expect(act(w, PIP_ID, { action: 'eat', params: { target: 'berry bush' } }).success).toBe(true)
+  expect(act(createWorld(1), PIP_ID, { action: 'start_building', params: { site: 'middle of the plot', purpose: 'home' } }).success).toBe(true)
+  expect(act(createWorld(1), PIP_ID, { action: 'look_at', params: { target: 'The Pond' } }).success).toBe(true)
+  expect(act(createWorld(1), PIP_ID, { action: 'look_at', params: { target: 'the moon' } }).success).toBe(false)
+})

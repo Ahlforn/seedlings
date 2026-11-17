@@ -70,7 +70,9 @@ type MoveDef = {
 }
 
 const distance = (a: Tile, b: Tile) => Math.abs(a.x - b.x) + Math.abs(a.y - b.y)
-const same = (a: string, b: string) => a.trim().toLowerCase() === b.trim().toLowerCase()
+/** Names match whatever their case, and with or without a leading "the" or "a": models drop both. */
+const plain = (name: string) => name.trim().toLowerCase().replace(/^(the|an|a)\s+/, '')
+const same = (a: string, b: string) => plain(a) === plain(b)
 const finished = (b: Building) => b.workLeft === 0
 
 const PURPOSE_WORDS: Record<Purpose, string> = { home: 'a home', food: 'a place to eat', other: 'a building' }
