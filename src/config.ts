@@ -61,7 +61,7 @@ export function loadConfig(env: Env): Config {
     pipModel: env.SEEDLINGS_PIP_MODEL || 'glm-5.2',
     userAgent: 'seedlings-town/0.1',
     jsonMode: (env.SEEDLINGS_JSON_MODE ?? '1') !== '0',
-    maxTokens: wholeBetween(env, 'SEEDLINGS_MAX_TOKENS', 3000, 1, 100_000),
+    maxTokens: wholeBetween(env, 'SEEDLINGS_MAX_TOKENS', 4000, 1, 100_000),
     daysPerRealDay: positive(env, 'SEEDLINGS_DAYS_PER_REAL_DAY', 4),
     tickMs: positive(env, 'SEEDLINGS_TICK_MS', 5000),
     seed: number(env, 'SEEDLINGS_SEED', 1),
