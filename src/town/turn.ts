@@ -92,7 +92,7 @@ export async function runTurn(deps: TownDeps, characterId: string): Promise<Turn
   for (let attempt = 0; attempt < 2 && !decision; attempt++) {
     // The first reply may have used up the budget, or been charged to balance: then there is no second ask.
     if (attempt > 0 && !budget.status().canThink) break
-    const reply = await model.complete({ model: config.pipModel, system, user, sessionId: characterId, maxTokens: config.maxTokens })
+    const reply = await model.complete({ model: config.pipModel, system, user, sessionId: characterId, maxTokens: config.maxTokens, reasoningEffort: config.reasoningEffort })
     budget.record(characterId, reply.usage)
     refuseIfCutOff(reply)
     replies.push(reply)
@@ -158,7 +158,7 @@ export async function runReflection(deps: TownDeps, characterId: string, endOfDa
   const open = store.openMindItems(characterId)
   store.setFlag(CALL_FLAG, String(deps.now()))
   const prompt = reflectionPrompt(PIP_SHEET, clockOf(world.minutes).label, turns, open, endOfDay)
-  const reply = await model.complete({ model: config.pipModel, system: prompt.system, user: prompt.user, sessionId: characterId, maxTokens: config.maxTokens })
+  const reply = await model.complete({ model: config.pipModel, system: prompt.system, user: prompt.user, sessionId: characterId, maxTokens: config.maxTokens, reasoningEffort: config.reasoningEffort })
   budget.record(characterId, reply.usage)
   refuseIfCutOff(reply)
   const reflection = readReflection(reply.text)

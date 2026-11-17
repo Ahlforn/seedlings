@@ -69,3 +69,17 @@ test('a reply cut off by the token limit comes back with what it cost, and says 
   expect(await c.complete(req)).toEqual({ text: '', finishReason: 'length',
     usage: { allowance: 0.0032, inputTokens: 1043, outputTokens: 400, billingSource: 'go' } })
 })
+
+// Found on a long live run: glm-5.2's reasoning varied from 2,500 to 4,600 tokens on the same prompt.
+test('a reasoning effort is sent when one is set, and left out when not', async () => {
+  const bodies: Record<string, unknown>[] = []
+  const f = (async (_: string, init: RequestInit) => { bodies.push(JSON.parse(init.body as string))
+    return new Response(JSON.stringify({ choices: [{ message: { content: '{}' } }] })) }) as unknown as typeof fetch
+  const c = openAiClient({ baseUrl: 'https://x/v1', apiKey: 'K', userAgent: 'u', jsonMode: true, fetch: f })
+  await c.complete({ ...req, reasoningEffort: 'low' })
+  await c.complete({ ...req, reasoningEffort: '' })
+  await c.complete(req)
+  expect(bodies[0].reasoning_effort).toBe('low')
+  expect('reasoning_effort' in bodies[1]).toBe(false)
+  expect('reasoning_effort' in bodies[2]).toBe(false)
+})

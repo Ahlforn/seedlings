@@ -54,7 +54,8 @@ All settings are environment variables, read from `.env` when present.
 | `SEEDLINGS_BASE_URL` | OpenCode Go | Any OpenAI-shaped chat endpoint |
 | `SEEDLINGS_PIP_MODEL` | `glm-5.2` | The model that drives Pip |
 | `SEEDLINGS_JSON_MODE` | `1` | Set to `0` if the provider rejects JSON mode |
-| `SEEDLINGS_MAX_TOKENS` | `4000` | Room for one reply. A model that reasons first uses this for its reasoning too |
+| `SEEDLINGS_MAX_TOKENS` | `8000` | Room for one reply. A model that reasons first uses this for its reasoning too |
+| `SEEDLINGS_REASONING_EFFORT` | `low` | How long a reasoning model thinks before answering: `low`, `medium`, `high`, or empty to leave it to the provider |
 | `SEEDLINGS_DAYS_PER_REAL_DAY` | `4` | In-world days per real day |
 | `SEEDLINGS_TICK_MS` | `5000` | How often the town advances |
 | `SEEDLINGS_SEED` | `1` | Seed for the plot and the weather |

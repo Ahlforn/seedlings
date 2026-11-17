@@ -27,7 +27,15 @@ test('a fake town keeps its own database unless told otherwise', () => {
 })
 
 test('room for the model to think and answer', () => {
-  expect(loadConfig({ SEEDLINGS_PASSWORD: 'p', SEEDLINGS_API_KEY: 'k' }).maxTokens).toBe(4000)
+  expect(loadConfig({ SEEDLINGS_PASSWORD: 'p', SEEDLINGS_API_KEY: 'k' }).maxTokens).toBe(8000)
   expect(loadConfig({ SEEDLINGS_PASSWORD: 'p', SEEDLINGS_API_KEY: 'k', SEEDLINGS_MAX_TOKENS: '800' }).maxTokens).toBe(800)
   expect(() => loadConfig({ SEEDLINGS_PASSWORD: 'p', SEEDLINGS_API_KEY: 'k', SEEDLINGS_MAX_TOKENS: '0' })).toThrow('SEEDLINGS_MAX_TOKENS')
+})
+
+test('reasoning effort: low by default, may be turned up or left to the provider', () => {
+  const base = { SEEDLINGS_PASSWORD: 'p', SEEDLINGS_API_KEY: 'k' }
+  expect(loadConfig(base).reasoningEffort).toBe('low')
+  expect(loadConfig({ ...base, SEEDLINGS_REASONING_EFFORT: 'high' }).reasoningEffort).toBe('high')
+  expect(loadConfig({ ...base, SEEDLINGS_REASONING_EFFORT: '' }).reasoningEffort).toBe('')
+  expect(() => loadConfig({ ...base, SEEDLINGS_REASONING_EFFORT: 'lots' })).toThrow('SEEDLINGS_REASONING_EFFORT')
 })

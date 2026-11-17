@@ -11,6 +11,8 @@ export type Config = {
   jsonMode: boolean
   /** Room for one reply. For a model that reasons first, the reasoning counts against this too. */
   maxTokens: number
+  /** Sent as reasoning_effort to models that reason before answering. Empty leaves it to the provider. */
+  reasoningEffort: string
   daysPerRealDay: number
   tickMs: number
   seed: number
@@ -49,6 +51,16 @@ function wholeBetween(env: Env, name: string, fallback: number, min: number, max
   return value
 }
 
+const EFFORTS = ['', 'low', 'medium', 'high']
+
+function effort(env: Env): string {
+  const value = (env.SEEDLINGS_REASONING_EFFORT ?? 'low').trim().toLowerCase()
+  if (!EFFORTS.includes(value)) {
+    throw new Error(`Setting SEEDLINGS_REASONING_EFFORT must be low, medium, high, or empty, got "${env.SEEDLINGS_REASONING_EFFORT}"`)
+  }
+  return value
+}
+
 export function loadConfig(env: Env): Config {
   const fakeModel = env.SEEDLINGS_FAKE_MODEL === '1'
   return {
@@ -61,7 +73,8 @@ export function loadConfig(env: Env): Config {
     pipModel: env.SEEDLINGS_PIP_MODEL || 'glm-5.2',
     userAgent: 'seedlings-town/0.1',
     jsonMode: (env.SEEDLINGS_JSON_MODE ?? '1') !== '0',
-    maxTokens: wholeBetween(env, 'SEEDLINGS_MAX_TOKENS', 4000, 1, 100_000),
+    maxTokens: wholeBetween(env, 'SEEDLINGS_MAX_TOKENS', 8000, 1, 100_000),
+    reasoningEffort: effort(env),
     daysPerRealDay: positive(env, 'SEEDLINGS_DAYS_PER_REAL_DAY', 4),
     tickMs: positive(env, 'SEEDLINGS_TICK_MS', 5000),
     seed: number(env, 'SEEDLINGS_SEED', 1),

@@ -132,3 +132,10 @@ test('the model is given the configured room to think and answer', async () => {
   const d = deps([eat]); await runTurn({ ...d, config: { ...d.config, maxTokens: 1234 } }, PIP_ID)
   expect(d.model.requests[0].maxTokens).toBe(1234)
 })
+
+test('turns and the diary ask for the configured reasoning effort', async () => {
+  const d = deps([eat, '{"diary":"x","memories":[],"mind":[],"done":[]}'])
+  const withEffort = { ...d, config: { ...d.config, reasoningEffort: 'medium' } }
+  await runTurn(withEffort, PIP_ID); await runReflection(withEffort, PIP_ID, false)
+  expect(d.model.requests.map(r => r.reasoningEffort)).toEqual(['medium', 'medium'])
+})

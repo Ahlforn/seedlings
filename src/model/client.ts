@@ -1,6 +1,14 @@
 /** Talking to a model. Any OpenAI-shaped chat endpoint works; OpenCode Go adds what a request cost. */
 
-export type ModelRequest = { model: string; system: string; user: string; sessionId: string; maxTokens: number }
+export type ModelRequest = {
+  model: string
+  system: string
+  user: string
+  sessionId: string
+  maxTokens: number
+  /** low, medium or high for models that reason first. Left out of the request when empty or missing. */
+  reasoningEffort?: string
+}
 export type ModelUsage = {
   /** Go only: what the request counted toward the plan's limits. Null from other providers. */
   allowance: number | null
@@ -66,6 +74,7 @@ export function openAiClient(opts: {
         max_tokens: req.maxTokens,
       }
       if (opts.jsonMode) body.response_format = { type: 'json_object' }
+      if (req.reasoningEffort) body.reasoning_effort = req.reasoningEffort
 
       let response: Response
       try {

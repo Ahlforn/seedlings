@@ -12,6 +12,7 @@ const reply = await client.complete({
   user: '{"say":"hi"} — repeat this back.',
   sessionId: 'smoke',
   maxTokens: config.maxTokens,
+  reasoningEffort: config.reasoningEffort,
 })
 
 console.log('model:', config.pipModel)
