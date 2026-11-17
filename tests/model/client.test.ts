@@ -1,0 +1,53 @@
+import { openAiClient, ModelError } from '../../src/model/client.ts'
+import { scriptedClient } from '../../src/model/scripted.ts'
+
+const req = { model: 'glm-5.2', system: 'sys', user: 'usr', sessionId: 'pip', maxTokens: 300 }
+const ok = (body: unknown, init: ResponseInit = {}) =>
+  (async () => new Response(JSON.stringify(body), { status: 200, ...init })) as unknown as typeof fetch
+
+test('sends the right request and identifies itself', async () => {
+  let seen: { url: string; init: RequestInit } | undefined
+  const f = (async (url: string, init: RequestInit) => { seen = { url, init }
+    return new Response(JSON.stringify({ choices: [{ message: { content: '{"do":[]}' } }],
+      usage: { prompt_tokens: 12, completion_tokens: 3, opencode: { allowance: 0.004, billing_source: 'go' } } }))
+  }) as unknown as typeof fetch
+  const c = openAiClient({ baseUrl: 'https://x/v1', apiKey: 'K', userAgent: 'seedlings-town/0.1', jsonMode: true, fetch: f })
+  const r = await c.complete(req)
+  expect(seen!.url).toBe('https://x/v1/chat/completions')
+  const h = new Headers(seen!.init.headers)
+  expect(h.get('authorization')).toBe('Bearer K')
+  expect(h.get('user-agent')).toBe('seedlings-town/0.1')
+  expect(h.get('x-opencode-session')).toBe('pip')
+  const body = JSON.parse(seen!.init.body as string)
+  expect(body).toMatchObject({ model: 'glm-5.2', max_tokens: 300, response_format: { type: 'json_object' } })
+  expect(body.messages.map((m: { role: string }) => m.role)).toEqual(['system', 'user'])
+  expect(r).toEqual({ text: '{"do":[]}', usage: { allowance: 0.004, inputTokens: 12, outputTokens: 3, billingSource: 'go' } })
+})
+test('another provider without the opencode block still works', async () => {
+  const c = openAiClient({ baseUrl: 'https://x/v1', apiKey: 'K', userAgent: 'u', jsonMode: false,
+    fetch: ok({ choices: [{ message: { content: 'hi' } }], usage: { prompt_tokens: 1, completion_tokens: 1 } }) })
+  expect((await c.complete(req)).usage).toMatchObject({ allowance: null, billingSource: null })
+})
+test('errors carry status and retry-after', async () => {
+  const f = (async () => new Response('slow down', { status: 429, headers: { 'retry-after': '30' } })) as unknown as typeof fetch
+  const c = openAiClient({ baseUrl: 'https://x/v1', apiKey: 'K', userAgent: 'u', jsonMode: true, fetch: f })
+  await expect(c.complete(req)).rejects.toMatchObject({ status: 429, retryAfterMs: 30000 })
+})
+test('a reply with no content is an error, not an empty string', async () => {
+  const c = openAiClient({ baseUrl: 'https://x/v1', apiKey: 'K', userAgent: 'u', jsonMode: true, fetch: ok({ choices: [] }) })
+  await expect(c.complete(req)).rejects.toBeInstanceOf(ModelError)
+})
+test('a hung request times out', async () => {
+  const f = ((_: string, init: RequestInit) => new Promise((_, rej) =>
+    init.signal!.addEventListener('abort', () => rej(new Error('aborted'))))) as unknown as typeof fetch
+  const c = openAiClient({ baseUrl: 'https://x/v1', apiKey: 'K', userAgent: 'u', jsonMode: true, fetch: f, timeoutMs: 20 })
+  await expect(c.complete(req)).rejects.toBeInstanceOf(ModelError)
+})
+test('the stand-in replays its script and remembers requests', async () => {
+  const c = scriptedClient(['a', new ModelError('down'), (r) => r.sessionId])
+  expect((await c.complete(req)).text).toBe('a')
+  await expect(c.complete(req)).rejects.toBeInstanceOf(ModelError)
+  expect((await c.complete(req)).text).toBe('pip')
+  await expect(c.complete(req)).rejects.toBeInstanceOf(ModelError)
+  expect(c.requests).toHaveLength(4)
+})

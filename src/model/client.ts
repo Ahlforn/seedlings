@@ -1,0 +1,105 @@
+/** Talking to a model. Any OpenAI-shaped chat endpoint works; OpenCode Go adds what a request cost. */
+
+export type ModelRequest = { model: string; system: string; user: string; sessionId: string; maxTokens: number }
+export type ModelUsage = {
+  /** Go only: what the request counted toward the plan's limits. Null from other providers. */
+  allowance: number | null
+  inputTokens: number
+  outputTokens: number
+  billingSource: string | null
+}
+export type ModelReply = { text: string; usage: ModelUsage }
+
+export interface ModelClient {
+  complete(req: ModelRequest): Promise<ModelReply>
+}
+
+export class ModelError extends Error {
+  status: number | null
+  retryAfterMs: number | null
+
+  constructor(message: string, status: number | null = null, retryAfterMs: number | null = null) {
+    super(message)
+    this.name = 'ModelError'
+    this.status = status
+    this.retryAfterMs = retryAfterMs
+  }
+}
+
+type ChatResponse = {
+  choices?: { message?: { content?: unknown } }[]
+  usage?: {
+    prompt_tokens?: number
+    completion_tokens?: number
+    opencode?: { allowance?: number; billing_source?: string }
+  }
+}
+
+export function openAiClient(opts: {
+  baseUrl: string
+  apiKey: string
+  userAgent: string
+  jsonMode: boolean
+  fetch?: typeof fetch
+  timeoutMs?: number
+}): ModelClient {
+  const send = opts.fetch ?? fetch
+  const timeoutMs = opts.timeoutMs ?? 60_000
+
+  return {
+    async complete(req) {
+      const body: Record<string, unknown> = {
+        model: req.model,
+        messages: [
+          { role: 'system', content: req.system },
+          { role: 'user', content: req.user },
+        ],
+        max_tokens: req.maxTokens,
+      }
+      if (opts.jsonMode) body.response_format = { type: 'json_object' }
+
+      let response: Response
+      try {
+        response = await send(`${opts.baseUrl}/chat/completions`, {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${opts.apiKey}`,
+            'Content-Type': 'application/json',
+            'User-Agent': opts.userAgent,
+            'x-opencode-session': req.sessionId,
+          },
+          body: JSON.stringify(body),
+          signal: AbortSignal.timeout(timeoutMs),
+        })
+      } catch (cause) {
+        throw new ModelError(`The model could not be reached: ${cause instanceof Error ? cause.message : String(cause)}`)
+      }
+
+      if (!response.ok) {
+        const seconds = Number(response.headers.get('retry-after'))
+        const retryAfterMs = Number.isFinite(seconds) && seconds > 0 ? seconds * 1000 : null
+        const detail = (await response.text().catch(() => '')).slice(0, 300)
+        throw new ModelError(`The model answered ${response.status}: ${detail}`, response.status, retryAfterMs)
+      }
+
+      let data: ChatResponse
+      try {
+        data = (await response.json()) as ChatResponse
+      } catch {
+        throw new ModelError('The model answered with something that is not JSON.', response.status)
+      }
+      const text = data.choices?.[0]?.message?.content
+      if (typeof text !== 'string') throw new ModelError('The model answered with no content.', response.status)
+
+      return {
+        text,
+        usage: {
+          allowance: data.usage?.opencode?.allowance ?? null,
+          inputTokens: data.usage?.prompt_tokens ?? 0,
+          outputTokens: data.usage?.completion_tokens ?? 0,
+          billingSource: data.usage?.opencode?.billing_source ?? null,
+        },
+      }
+    },
+  }
+}
