@@ -4,10 +4,10 @@
  * One table of moves drives all three, so they cannot drift apart.
  */
 
-import { COLOURS, EXTRAS, PURPOSES, ROOFS, cleanText, validateRecipe, workUnits } from '../shared/recipe.ts'
-import type { Act, Building, Character, MemoryKind, Purpose, Tile, Urgency, World } from '../shared/types.ts'
+import { COLOURS, EXTRAS, MARKS, PURPOSES, ROOFS, cleanText, validateRecipe, workUnits } from '../shared/recipe.ts'
+import type { Act, Building, Character, Colour, Mark, MemoryKind, Purpose, Tile, Urgency, World } from '../shared/types.ts'
 import { clockOf } from './clock.ts'
-import { HEARD_MAX, NOTES_MAX, distance, others, residents, withinHearing } from './people.ts'
+import { HEARD_MAX, NOTES_MAX, RESERVED_NAMES, distance, homesWithRoom, others, residents, withinHearing } from './people.ts'
 import { candidateSites } from './sites.ts'
 import { addEvent, character, clamp, random, urgency } from './world.ts'
 
@@ -82,6 +82,11 @@ const NAME_MAX = 30
 const ABOUT_MAX = 80
 const SPEECH_MAX = 200
 const NOTE_MAX = 200
+const WHO_MAX = 300
+const KIND_MAX = 40
+const LIST_ITEM_MAX = 40
+const MAX_TRAITS = 4
+const MAX_OTHERS = 3
 
 type Thing = { name: string; at: Tile; describe: string; look: string }
 type Offer = { ok: true; params: Record<string, string[]> } | { ok: false; reason: string }
@@ -157,6 +162,11 @@ function walk(c: Character, to: Tile): number {
 
 function find<T extends { name: string }>(list: T[], name: string | undefined): T | undefined {
   return name === undefined ? undefined : list.find((item) => same(item.name, name))
+}
+
+/** "shy, watchful, , kind" → ['shy', 'watchful', 'kind'], at most max of them. */
+function listOf(text: string | undefined, max: number): string[] {
+  return (text ?? '').split(',').map((item) => cleanText(item, LIST_ITEM_MAX)).filter((item) => item !== '').slice(0, max)
 }
 
 function uniqueBuildingName(world: World, wanted: string, purpose: Purpose): string {
@@ -366,8 +376,74 @@ const MOVES: MoveDef[] = [
     perform(world, c, params) {
       const building = find(world.buildings, params.target)!
       const minutes = walk(c, building.at) + 45
+      const homeless = residents(world, building)
       world.buildings = world.buildings.filter((b) => b !== building)
+      for (const resident of homeless) {
+        resident.homeId = null
+        addEvent(world, `${resident.name} no longer has a home`)
+      }
       return { ok: true, done: { message: `You pull down ${building.name}. The ground is bare again.`, moodDelta: 0, minutes, label: `pulling down ${building.name}`, event: `${c.name} pulled down ${building.name}` } }
+    },
+  },
+  {
+    spec: {
+      name: 'create_inhabitant', label: 'bringing someone to life', tier: 'origin',
+      description: 'Bring someone new to life to live in one of your homes. You decide who they are; after that they decide for themselves.',
+      params: {
+        name: { hint: 'what they are called, one or two words' },
+        kind: { hint: 'what sort of creature they are, a few words' },
+        who: { hint: 'who they are, a sentence or two, in your own words' },
+        traits: { hint: 'two to four, separated by commas' },
+        cares_about: { hint: 'one to three things, separated by commas' },
+        fears: { hint: 'one to three things, separated by commas' },
+        colour: { values: COLOURS },
+        mark: { values: MARKS, hint: 'the one thing that sets them apart to look at' },
+        home: { hint: 'a home with room, from the list' },
+      },
+    },
+    offer(world) {
+      const count = world.characters.filter((other) => other.tier === 'inhabitant').length
+      if (count >= world.populationLimit) return { ok: false, reason: 'the town cannot support anyone more yet' }
+      const homes = homesWithRoom(world)
+      if (homes.length === 0) return { ok: false, reason: 'there is no finished home with room for someone new' }
+      return { ok: true, params: { home: homes.map((b) => b.name), colour: COLOURS, mark: MARKS } }
+    },
+    perform(world, c, params) {
+      const name = cleanText(params.name ?? '', NAME_MAX)
+      if (name === '') return { ok: false, reason: 'They need a name.' }
+      const taken = [...world.characters, ...world.buildings, ...world.features].some((t) => same(t.name, name)) ||
+        RESERVED_NAMES.some((word) => same(word, name))
+      if (taken) return { ok: false, reason: `There is already something called ${name}. Choose another name.` }
+      const who = cleanText(params.who ?? '', WHO_MAX)
+      if (who === '') return { ok: false, reason: 'Say who they are in a sentence or two.' }
+      const traits = listOf(params.traits, MAX_TRAITS)
+      if (traits.length === 0) return { ok: false, reason: 'Give them at least one trait.' }
+      const home = find(homesWithRoom(world), params.home)!
+      const id = `c${world.nextId++}`
+      const minutes = walk(c, home.at) + 60
+      world.characters.push({
+        id, name, tier: 'inhabitant', at: { x: home.at.x, y: home.at.y },
+        body: { hunger: 0.2, tiredness: 0.1, mood: 0.1 }, asleep: false, busyUntil: world.minutes, doing: 'idle',
+        said: '', saidAt: 0, queue: [], queueTurn: 0, homeId: home.id,
+        look: { colour: params.colour as Colour, mark: params.mark as Mark },
+        sheet: {
+          name, you: cleanText(params.kind ?? '', KIND_MAX) || 'a small creature', core: who, traits,
+          values: listOf(params.cares_about, MAX_OTHERS), fears: listOf(params.fears, MAX_OTHERS),
+        },
+        heard: [],
+      })
+      return {
+        ok: true,
+        done: {
+          message: `${name} blinks awake at ${home.name} and looks at you.`, moodDelta: 0.2, minutes,
+          label: `bringing ${name} to life`, event: `${c.name} made ${name}, who will live at ${home.name}`,
+          created: id,
+          leaves: [
+            { characterId: c.id, text: `I made ${name}. They live at ${home.name}.`, kind: 'person' },
+            { characterId: id, text: `I opened my eyes at ${home.name}, and ${c.name} was there.`, kind: 'moment' },
+          ],
+        },
+      }
     },
   },
   {

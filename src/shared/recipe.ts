@@ -1,11 +1,13 @@
 /** The building kit: what a building can be made of, and how a recipe is checked. */
 
-import type { Colour, Extra, Purpose, Recipe, RoofShape } from './types.ts'
+import type { Colour, Extra, Mark, Purpose, Recipe, RoofShape } from './types.ts'
 
 export const COLOURS: Colour[] = ['cream', 'white', 'sand', 'brick', 'red', 'blue', 'green', 'yellow', 'grey', 'brown']
 export const ROOFS: RoofShape[] = ['flat', 'pitched', 'pyramid', 'dome']
 export const EXTRAS: Extra[] = ['chimney', 'awning', 'garden', 'lantern']
 export const PURPOSES: Purpose[] = ['home', 'food', 'other']
+/** The one feature that sets an inhabitant apart. */
+export const MARKS: Mark[] = ['ears', 'antennae', 'tail', 'hat', 'scarf', 'spots']
 
 export const SIGN_MAX = 16
 
