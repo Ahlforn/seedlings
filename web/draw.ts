@@ -164,7 +164,7 @@ function seedling(ctx: CanvasRenderingContext2D, at: Point, asleep: boolean): vo
 
 /** An inhabitant: a small round creature in its colour, with its one mark. */
 function critter(ctx: CanvasRenderingContext2D, at: Point, look: Look | null, asleep: boolean): void {
-  const colour = PALETTE[look?.colour ?? 'sand']
+  const colour = (look && PALETTE[look.colour]) || PALETTE.sand
   const r = 9
   const cy = at.y - r - 2
   shadow(ctx, at, 9, 3)

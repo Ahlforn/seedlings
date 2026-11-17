@@ -75,3 +75,9 @@ test('inhabitants cannot create inhabitants', () => {
   const r = act(w, mo.id, { action: 'create_inhabitant', params: { ...sheet, name: 'Fen' } })
   expect(r).toMatchObject({ success: false, message: 'That is not something you can do here.' })
 })
+// Final review #1
+test('a colour or mark written in another case, or with "the", is stored as the kit names it', () => {
+  const r = create({ ...sheet, colour: 'the Blue', mark: 'Antennae' })
+  expect(r.success).toBe(true)
+  expect(character(w, r.created!).look).toEqual({ colour: 'blue', mark: 'antennae' })
+})

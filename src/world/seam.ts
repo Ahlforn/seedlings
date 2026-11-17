@@ -5,7 +5,7 @@
  */
 
 import { COLOURS, EXTRAS, MARKS, PURPOSES, ROOFS, cleanText, validateRecipe, workUnits } from '../shared/recipe.ts'
-import type { Act, Building, Character, Colour, Mark, MemoryKind, Purpose, Tile, Urgency, World } from '../shared/types.ts'
+import type { Act, Building, Character, MemoryKind, Purpose, Tile, Urgency, World } from '../shared/types.ts'
 import { clockOf } from './clock.ts'
 import { HEARD_MAX, NOTES_MAX, RESERVED_NAMES, distance, homesWithRoom, others, residents, withinHearing } from './people.ts'
 import { candidateSites } from './sites.ts'
@@ -425,7 +425,8 @@ const MOVES: MoveDef[] = [
         id, name, tier: 'inhabitant', at: { x: home.at.x, y: home.at.y },
         body: { hunger: 0.2, tiredness: 0.1, mood: 0.1 }, asleep: false, busyUntil: world.minutes, doing: 'idle',
         said: '', saidAt: 0, queue: [], queueTurn: 0, homeId: home.id,
-        look: { colour: params.colour as Colour, mark: params.mark as Mark },
+        // Stored as the kit names them: the model may have written "the Blue" for blue.
+        look: { colour: COLOURS.find((x) => same(x, params.colour ?? ''))!, mark: MARKS.find((x) => same(x, params.mark ?? ''))! },
         sheet: {
           name, you: cleanText(params.kind ?? '', KIND_MAX) || 'a small creature', core: who, traits,
           values: listOf(params.cares_about, MAX_OTHERS), fears: listOf(params.fears, MAX_OTHERS),
