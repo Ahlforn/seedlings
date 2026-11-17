@@ -51,11 +51,18 @@ const HISTORY = 20
 const clamp = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value))
 
 export function createBudgetKeeper(store: Store, settings: BudgetSettings, now: () => number): BudgetKeeper {
+  /** The renewal moment in a given month. A renewal day the month does not have falls on its last day. */
+  function renewal(year: number, month: number): number {
+    const daysInMonth = new Date(Date.UTC(year, month + 1, 0)).getUTCDate()
+    return Date.UTC(year, month, Math.min(settings.periodStartDay, daysInMonth))
+  }
+
   function period(at: number): { start: number; end: number } {
     const date = new Date(at)
     const year = date.getUTCFullYear()
-    const month = date.getUTCMonth() - (date.getUTCDate() >= settings.periodStartDay ? 0 : 1)
-    return { start: Date.UTC(year, month, settings.periodStartDay), end: Date.UTC(year, month + 1, settings.periodStartDay) }
+    let month = date.getUTCMonth()
+    if (renewal(year, month) > at) month -= 1
+    return { start: renewal(year, month), end: renewal(year, month + 1) }
   }
 
   return {

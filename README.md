@@ -9,7 +9,7 @@ This is stage 1 (Pip alone). The design is in `docs/superpowers/specs/`, the bui
 
 ## Run it
 
-Needs Node 24 or newer.
+Needs Node 24.2 or newer.
 
 ```bash
 npm install
@@ -22,11 +22,12 @@ Open `http://localhost:8787` and enter the password.
 
 ### Try it without a model
 
-A stand-in model costs nothing and lets you watch the town work. The clock is sped up here so a day
-passes in three minutes:
+A stand-in model costs nothing and lets you watch the town work. It keeps its own database
+(`data/fake.db`), so it never touches the real town. The clock is sped up here so a day passes in
+three minutes:
 
 ```bash
-SEEDLINGS_PASSWORD=secret SEEDLINGS_FAKE_MODEL=1 SEEDLINGS_DAYS_PER_REAL_DAY=480 SEEDLINGS_DB=./data/fake.db npm start
+SEEDLINGS_PASSWORD=secret SEEDLINGS_FAKE_MODEL=1 SEEDLINGS_DAYS_PER_REAL_DAY=480 npm start
 ```
 
 ### Check your key first
@@ -65,6 +66,9 @@ All settings are environment variables, read from `.env` when present.
 Each day gets an even share of what is left of the month, and that share sets how often Pip thinks.
 When the share runs out the town rests until the next day (UTC). At most half the monthly allowance
 is used in any seven days and a fifth in any five hours.
+
+If the top bar says "trouble reaching the model", hover over it for the reason (a wrong key, a provider
+outage, a database that cannot be written). The town keeps retrying, more slowly each time.
 
 If thinking stopped because a reply was charged to your balance, fix the cause, then clear the halt
 with the town stopped:

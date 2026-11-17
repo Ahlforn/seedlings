@@ -4,19 +4,31 @@ import type { Memory, Store } from '../store/store.ts'
 import type { ActResult, Observation } from '../world/seam.ts'
 
 const MOOD_THRESHOLD = 0.05
+/** Of the memories recalled, this many places always go to the most recent ones. */
+const RECENT_PLACES = 2
 
 const words = (text: string) => new Set(text.toLowerCase().match(/[a-z]{4,}/g) ?? [])
 
-/** Picks the memories most likely to matter here: strong ones, and ones that share words with the scene. */
+const newestFirst = (a: Memory, b: Memory) => b.sinceMinutes - a.sinceMinutes || b.id - a.id
+
+/**
+ * Picks the memories most likely to matter here. Sharing words with the scene counts for most;
+ * strength counts on a log scale, so a memory recalled for weeks cannot crowd out everything else;
+ * and some places always go to the most recent memories, so new ones get a chance to take hold.
+ */
 export function recall(memories: Memory[], o: Observation, n: number): Memory[] {
   const scene = words([o.room, o.body, ...o.recentEvents].join(' '))
   const scored = memories.map((memory) => {
     let shared = 0
     for (const word of words(memory.text)) if (scene.has(word)) shared++
-    return { memory, score: memory.strength * (1 + shared) }
+    return { memory, score: (1 + 2 * shared) * (1 + Math.log2(Math.max(1, memory.strength))) }
   })
-  scored.sort((a, b) => b.score - a.score || b.memory.sinceMinutes - a.memory.sinceMinutes)
-  return scored.slice(0, n).map((entry) => entry.memory)
+  scored.sort((a, b) => b.score - a.score || newestFirst(a.memory, b.memory))
+
+  const reserved = Math.min(RECENT_PLACES, Math.floor(n / 2))
+  const picked = scored.slice(0, n - reserved).map((entry) => entry.memory)
+  const recent = [...memories].sort(newestFirst).filter((memory) => !picked.includes(memory))
+  return [...picked, ...recent.slice(0, n - picked.length)]
 }
 
 const capital = (text: string) => text.charAt(0).toUpperCase() + text.slice(1)

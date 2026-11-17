@@ -32,6 +32,23 @@ const TURN_TOKENS = 400
 const REFLECTION_TOKENS = 500
 const MEMORY_CAP = 200
 const DAY_MINUTES = 1440
+/** A reflection looks back over at most this many turns, so its prompt cannot grow without bound. */
+const REFLECTION_TURNS = 12
+/** At most this many things stay on a mind; the oldest are let go. */
+const MIND_CAP = 12
+const CALL_FLAG = 'last_call_at'
+const reflectedFlag = (characterId: string) => `reflected:${characterId}`
+
+/** The last turn a reflection has already looked at, whether or not it produced a diary entry. */
+function reflectedUpTo(store: Store, characterId: string): number {
+  const last = store.diary(characterId, 1)[0]
+  return Math.max(last?.toTurn ?? 0, Number(store.getFlag(reflectedFlag(characterId)) ?? 0))
+}
+
+/** How many turns have happened that no reflection has looked at yet. */
+export function turnsSinceReflection(store: Store, characterId: string): number {
+  return store.turnsBetween(characterId, reflectedUpTo(store, characterId) + 1, store.lastTurnId(characterId)).length
+}
 
 const finishedCount = (world: World) => world.buildings.filter((b) => b.workLeft === 0).length
 
@@ -61,9 +78,15 @@ export async function runTurn(deps: TownDeps, characterId: string): Promise<Turn
   const system = systemPrompt(manifest(), observation, PIP_SHEET)
   const user = whatISee(observation, recalled, store.beliefs(characterId), store.openMindItems(characterId).slice(0, MIND_ITEMS_SHOWN))
 
+  // Written before asking: if the database cannot be written, the model is never called,
+  // so no request can go unrecorded.
+  store.setFlag(CALL_FLAG, String(deps.now()))
+
   const replies: ModelReply[] = []
   let decision: Decision | null = null
   for (let attempt = 0; attempt < 2 && !decision; attempt++) {
+    // The first reply may have used up the budget, or been charged to balance: then there is no second ask.
+    if (attempt > 0 && !budget.status().canThink) break
     const reply = await model.complete({ model: config.pipModel, system, user, sessionId: characterId, maxTokens: TURN_TOKENS })
     budget.record(characterId, reply.usage)
     replies.push(reply)
@@ -121,11 +144,13 @@ export function performQueued(deps: TownDeps, characterId: string): TurnOutcome 
 /** Writes a diary entry about the turns since the last one. Null when there is nothing new or the reply is unreadable. */
 export async function runReflection(deps: TownDeps, characterId: string, endOfDay: boolean): Promise<number | null> {
   const { world, store, model, budget, config } = deps
-  const last = store.diary(characterId, 1)[0]
-  const turns = store.turnsBetween(characterId, (last?.toTurn ?? 0) + 1, store.lastTurnId(characterId))
-  if (turns.length === 0) return null
+  if (!budget.status().canThink) return null
+  const unseen = store.turnsBetween(characterId, reflectedUpTo(store, characterId) + 1, store.lastTurnId(characterId))
+  if (unseen.length === 0) return null
+  const turns = unseen.slice(-REFLECTION_TURNS)
 
   const open = store.openMindItems(characterId)
+  store.setFlag(CALL_FLAG, String(deps.now()))
   const prompt = reflectionPrompt(PIP_SHEET, clockOf(world.minutes).label, turns, open, endOfDay)
   const reply = await model.complete({ model: config.pipModel, system: prompt.system, user: prompt.user, sessionId: characterId, maxTokens: REFLECTION_TOKENS })
   budget.record(characterId, reply.usage)
@@ -146,6 +171,8 @@ export async function runReflection(deps: TownDeps, characterId: string, endOfDa
     inputTokens: reply.usage.inputTokens,
     outputTokens: reply.usage.outputTokens,
   })
+  // These turns have been looked at, even if the reply could not be read: they are not asked about again.
+  store.setFlag(reflectedFlag(characterId), String(turns[turns.length - 1].id))
   if (!reflection) return null
 
   const diaryId = store.addDiary({
@@ -158,6 +185,7 @@ export async function runReflection(deps: TownDeps, characterId: string, endOfDa
   for (const memory of reflection.memories) store.addMemory({ characterId, ...memory, sinceMinutes: world.minutes })
   for (const item of reflection.mind) store.addMindItem({ characterId, ...item, sinceMinutes: world.minutes })
   store.closeMindItems(reflection.done.filter((id) => open.some((item) => item.id === id)))
+  store.closeMindItems(store.openMindItems(characterId).slice(MIND_CAP).map((item) => item.id))
 
   if (endOfDay) {
     const recalledToday = store.memories(characterId)

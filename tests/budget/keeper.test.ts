@@ -61,3 +61,15 @@ test('the interval is clamped', () => {
   const now = { t: t0 + DAY - 5000 }; const { k } = make(now)
   expect(k.status().intervalMs).toBe(60_000)
 })
+
+// Final review I6: a renewal day the month does not have.
+test('a renewal day of 31 falls on the last day of shorter months', () => {
+  const now = { t: Date.UTC(2027, 2, 1) }                       // 1 March 2027
+  const store = openStore(':memory:')
+  const k = createBudgetKeeper(store, { monthlyAllowance: 60, periodStartDay: 31, ...DEFAULT_PACING }, () => now.t)
+  store.addSpend(Date.UTC(2027, 1, 28, 12), 'pip', 58)          // spent on 28 February, the first day of this period
+  for (let i = 0; i < 20; i++) store.addSpend(Date.UTC(2027, 1, 28, 13), 'pip', 0)
+  expect(k.status().intervalMs).toBe(3_600_000)                 // 2 left over 31 days: almost nothing per day
+  store.addSpend(now.t, 'pip', 2)
+  expect(k.status()).toMatchObject({ reason: 'month_spent', resumeAt: Date.UTC(2027, 2, 31) })
+})

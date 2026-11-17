@@ -51,3 +51,12 @@ test('the stand-in replays its script and remembers requests', async () => {
   await expect(c.complete(req)).rejects.toBeInstanceOf(ModelError)
   expect(c.requests).toHaveLength(4)
 })
+
+// Final review: usage figures that are not sane numbers must not reach the ledger.
+test.each([[Number.NaN], [-1], ['12'], [Infinity]])('an allowance of %s is treated as not reported', async (allowance) => {
+  const body = JSON.stringify({ choices: [{ message: { content: 'hi' } }], usage: { prompt_tokens: 'x', completion_tokens: -5, opencode: { allowance: 0, billing_source: 'go' } } })
+    .replace('"allowance":0', `"allowance":${typeof allowance === 'string' ? JSON.stringify(allowance) : Number.isFinite(allowance) ? allowance : '1e999'}`)
+  const f = (async () => new Response(body)) as unknown as typeof fetch
+  const c = openAiClient({ baseUrl: 'https://x/v1', apiKey: 'K', userAgent: 'u', jsonMode: false, fetch: f })
+  expect((await c.complete(req)).usage).toEqual({ allowance: null, inputTokens: 0, outputTokens: 0, billingSource: 'go' })
+})

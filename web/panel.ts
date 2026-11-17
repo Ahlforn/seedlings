@@ -19,10 +19,11 @@ export function showState(state: StateView): void {
   byId('count').textContent = `${finished} ${finished === 1 ? 'building' : 'buildings'}${sites ? `, ${sites} being built` : ''}`
 
   byId('reason').textContent = state.budget.reason
+  byId('reason').title = state.budget.trouble
   byId('left').textContent = `${Math.round(state.budget.leftToday * 100)}% of today left`
   const fill = byId('meter-fill')
   fill.style.width = `${Math.round(state.budget.leftToday * 100)}%`
-  fill.classList.toggle('stopped', !state.budget.canThink)
+  fill.classList.toggle('stopped', !state.budget.canThink || state.budget.trouble !== '')
 
   byId('doing').textContent = state.pip.doing === 'idle' ? 'Not doing anything in particular.' : `Pip is ${state.pip.doing}.`
   byId('thought').textContent = state.pip.thought ? `“${state.pip.thought}”` : 'Nothing yet.'
@@ -62,41 +63,77 @@ async function getJson<T>(url: string): Promise<T | null> {
   return response.ok ? ((await response.json()) as T) : null
 }
 
+const PAGE = 20
 const openTraces = new Set<number>()
+/** Entries older than the newest page, fetched when the reader asks for them. */
+let older: DiaryView[] = []
+let moreToLoad = false
 
-export async function showDiary(): Promise<void> {
-  const entries = await getJson<DiaryView[]>('/api/diary?character=pip')
-  if (!entries) return
+function entryNode(entry: DiaryView): HTMLElement {
+  const item = el('li')
+  const button = el('button')
+  button.type = 'button'
+  button.setAttribute('aria-expanded', String(openTraces.has(entry.id)))
+  button.append(el('time', entry.clock), el('span', entry.text, 'text'))
+  item.append(button)
+
+  let loading = false
+  const open = async () => {
+    if (loading) return
+    loading = true
+    const trace = await getJson<TraceView>(`/api/trace?diary=${entry.id}`)
+    loading = false
+    if (trace && openTraces.has(entry.id) && !item.querySelector('.trace')) item.append(traceNode(trace))
+  }
+  button.addEventListener('click', () => {
+    const shown = item.querySelector('.trace')
+    if (shown) {
+      shown.remove()
+      openTraces.delete(entry.id)
+    } else {
+      openTraces.add(entry.id)
+      void open()
+    }
+    button.setAttribute('aria-expanded', String(openTraces.has(entry.id)))
+  })
+  if (openTraces.has(entry.id)) void open()
+  return item
+}
+
+function render(entries: DiaryView[]): void {
   const list = byId('diary')
   if (entries.length === 0) {
     list.replaceChildren(el('li', 'Pip has not written anything yet.', 'quiet'))
     return
   }
-  const items = entries.map((entry) => {
+  const items = entries.map(entryNode)
+  if (moreToLoad) {
     const item = el('li')
-    const button = el('button')
-    button.type = 'button'
-    button.setAttribute('aria-expanded', String(openTraces.has(entry.id)))
-    button.append(el('time', entry.clock), el('span', entry.text, 'text'))
-    item.append(button)
-
-    const open = async () => {
-      const trace = await getJson<TraceView>(`/api/trace?diary=${entry.id}`)
-      if (trace) item.append(traceNode(trace))
-    }
-    button.addEventListener('click', () => {
-      const shown = item.querySelector('.trace')
-      if (shown) {
-        shown.remove()
-        openTraces.delete(entry.id)
-      } else {
-        openTraces.add(entry.id)
-        void open()
-      }
-      button.setAttribute('aria-expanded', String(openTraces.has(entry.id)))
-    })
-    if (openTraces.has(entry.id)) void open()
-    return item
-  })
+    const more = el('button', 'Older entries', 'more')
+    more.type = 'button'
+    more.addEventListener('click', () => void loadOlder(entries[entries.length - 1].id))
+    item.append(more)
+    items.push(item)
+  }
   list.replaceChildren(...items)
+}
+
+let newest: DiaryView[] = []
+
+async function loadOlder(beforeId: number): Promise<void> {
+  const page = await getJson<DiaryView[]>(`/api/diary?character=pip&before=${beforeId}`)
+  if (!page) return
+  older = [...older, ...page.filter((entry) => !older.some((known) => known.id === entry.id))]
+  moreToLoad = page.length === PAGE
+  render([...newest, ...older])
+}
+
+export async function showDiary(): Promise<void> {
+  const page = await getJson<DiaryView[]>('/api/diary?character=pip')
+  if (!page) return
+  newest = page
+  const oldestShown = page.length ? page[page.length - 1].id : 0
+  older = older.filter((entry) => entry.id < oldestShown)
+  if (older.length === 0) moreToLoad = page.length === PAGE
+  render([...newest, ...older])
 }

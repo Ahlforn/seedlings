@@ -12,3 +12,16 @@ test('names the missing variable', () => {
 test('a fake model needs no key', () => {
   expect(loadConfig({ SEEDLINGS_PASSWORD: 'p', SEEDLINGS_FAKE_MODEL: '1' }).fakeModel).toBe(true)
 })
+
+// Final review: settings that make no sense are refused by name.
+test.each([
+  ['SEEDLINGS_PERIOD_START_DAY', '0'], ['SEEDLINGS_PERIOD_START_DAY', '32'], ['SEEDLINGS_PERIOD_START_DAY', '1.5'],
+  ['SEEDLINGS_TICK_MS', '0'], ['SEEDLINGS_DAYS_PER_REAL_DAY', '-1'], ['SEEDLINGS_MONTHLY_ALLOWANCE', '0'],
+])('%s=%s is refused', (name, value) => {
+  expect(() => loadConfig({ SEEDLINGS_PASSWORD: 'p', SEEDLINGS_API_KEY: 'k', [name]: value })).toThrow(name)
+})
+test('a fake town keeps its own database unless told otherwise', () => {
+  expect(loadConfig({ SEEDLINGS_PASSWORD: 'p', SEEDLINGS_FAKE_MODEL: '1' }).dbPath).toBe('./data/fake.db')
+  expect(loadConfig({ SEEDLINGS_PASSWORD: 'p', SEEDLINGS_FAKE_MODEL: '1', SEEDLINGS_DB: './x.db' }).dbPath).toBe('./x.db')
+  expect(loadConfig({ SEEDLINGS_PASSWORD: 'p', SEEDLINGS_API_KEY: 'k' }).dbPath).toBe('./data/seedlings.db')
+})

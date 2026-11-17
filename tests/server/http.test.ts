@@ -10,16 +10,16 @@ import type { Store } from '../../src/store/store.ts'
 import { createWorld } from '../../src/world/world.ts'
 import { createBudgetKeeper, DEFAULT_PACING } from '../../src/budget/keeper.ts'
 
-let server: Server; let store: Store; let base = ''; let port = 0; let cookie = ''
+let server: Server; let store: Store; let base = ''; let port = 0; let cookie = ''; let trouble = ''
 const listeners = new Set<() => void>()
 
 beforeEach(async () => {
-  store = openStore(':memory:'); const world = createWorld(1); cookie = ''; listeners.clear()
+  store = openStore(':memory:'); const world = createWorld(1); cookie = ''; trouble = ''; listeners.clear()
   const budget = createBudgetKeeper(store, { monthlyAllowance: 60, periodStartDay: 1, ...DEFAULT_PACING }, () => Date.UTC(2026, 10, 1))
   const root = mkdtempSync(join(tmpdir(), 'seedlings-')); mkdirSync(join(root, 'web'))
   writeFileSync(join(root, 'web', 'index.html'), '<p>town</p>'); writeFileSync(join(root, 'secret.txt'), 'top secret')
   server = createServer({ world: () => world, store, budget, password: 'secret', staticDir: join(root, 'web'),
-    scheduler: { onChange: (fn) => { listeners.add(fn); return () => { listeners.delete(fn) } }, lastThought: () => 'hm' } })
+    scheduler: { onChange: (fn) => { listeners.add(fn); return () => { listeners.delete(fn) } }, lastThought: () => 'hm', trouble: () => trouble } })
   await new Promise<void>((resolve) => server.listen(0, resolve))
   port = (server.address() as AddressInfo).port; base = `http://localhost:${port}`
 })
@@ -109,4 +109,10 @@ test('static files cannot escape the folder', async () => {
     expect(r.status).toBe(404); expect(r.body).not.toContain('top secret')
   }
   expect((await rawGet('/index.html')).body).toBe('<p>town</p>')
+})
+
+// Final review: a town that cannot reach its model must say so on the page.
+test('trouble reaching the model is shown instead of "thinking"', async () => {
+  trouble = 'The model answered 401: bad key'
+  expect((await getJson('/api/state')).budget).toMatchObject({ canThink: true, reason: 'trouble reaching the model, trying again', trouble: 'The model answered 401: bad key' })
 })

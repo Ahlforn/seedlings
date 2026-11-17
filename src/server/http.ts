@@ -51,7 +51,9 @@ button{background:#6fbf5a;border-color:#6fbf5a;color:#16212b;cursor:pointer}</st
 <input id="password" name="password" type="password" autofocus autocomplete="current-password">
 <button type="submit">Open the town</button></form></body></html>`
 
-export function stateView(world: World, store: Store, budget: BudgetKeeper, thought: string): StateView {
+const TROUBLE_MAX = 160
+
+export function stateView(world: World, store: Store, budget: BudgetKeeper, thought: string, trouble = ''): StateView {
   const clock = clockOf(world.minutes)
   const status = budget.status()
   const pip = world.characters.find((c) => c.id === PIP_ID)
@@ -72,7 +74,13 @@ export function stateView(world: World, store: Store, budget: BudgetKeeper, thou
       said: c.said && world.minutes - c.saidAt <= SAID_FOR_MINUTES ? c.said : '',
       mood: c.body.mood,
     })),
-    budget: { leftToday: status.leftTodayFraction, canThink: status.canThink, reason: REASONS[status.reason] },
+    budget: {
+      leftToday: status.leftTodayFraction,
+      canThink: status.canThink,
+      // A town that may think but cannot reach its model, or cannot save, says so rather than "thinking".
+      reason: status.canThink && trouble ? 'trouble reaching the model, trying again' : REASONS[status.reason],
+      trouble: trouble.slice(0, TROUBLE_MAX),
+    },
     pip: {
       doing: pip?.asleep ? 'asleep' : (pip?.doing ?? ''),
       thought,
@@ -136,13 +144,13 @@ export function createServer(deps: {
   world: () => World
   store: Store
   budget: BudgetKeeper
-  scheduler: Pick<Scheduler, 'onChange' | 'lastThought'>
+  scheduler: Pick<Scheduler, 'onChange' | 'lastThought' | 'trouble'>
   password: string
   staticDir: string
 }): Server {
   const sessions = new Set<string>()
   const staticRoot = resolve(deps.staticDir)
-  const state = () => stateView(deps.world(), deps.store, deps.budget, deps.scheduler.lastThought())
+  const state = () => stateView(deps.world(), deps.store, deps.budget, deps.scheduler.lastThought(), deps.scheduler.trouble())
 
   function signedIn(req: IncomingMessage): boolean {
     for (const part of (req.headers.cookie ?? '').split(';')) {

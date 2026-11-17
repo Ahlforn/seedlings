@@ -37,3 +37,4 @@ p { margin: 0; }
 .trace dd { margin: 0 0 4px; white-space: pre-wrap; }
 .trace details summary { cursor: pointer; color: var(--quiet); }
 .trace .failed { color: var(--warn); }
+.diary button.more { text-align: center; color: var(--quiet); background: transparent; border: 1px dashed var(--line); }

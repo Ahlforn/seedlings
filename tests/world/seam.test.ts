@@ -93,3 +93,11 @@ test('speech is cleaned and remembered on the character', () => {
   act(w, PIP_ID, { action: 'speak', params: { text: 'hello\u0000 plot' } })
   expect(character(w, PIP_ID).said).toBe('hello plot')
 })
+
+// Final review I3: a rested character is not offered sleep just because it is night.
+test('sleep is not offered to a rested character at night', () => {
+  const w = createWorld(1); w.minutes = 23 * 60; character(w, PIP_ID).body.tiredness = 0.05
+  expect(names(observe(w, PIP_ID))).not.toContain('sleep')
+  character(w, PIP_ID).body.tiredness = 0.2
+  expect(names(observe(w, PIP_ID))).toContain('sleep')
+})

@@ -79,7 +79,8 @@ export type StateView = {
   features: Feature[]
   buildings: Building[]
   characters: { id: string; name: string; at: Tile; asleep: boolean; doing: string; said: string; mood: number }[]
-  budget: { leftToday: number; canThink: boolean; reason: string }
+  /** trouble is why thinking or saving is failing right now, or empty */
+  budget: { leftToday: number; canThink: boolean; reason: string; trouble: string }
   pip: { doing: string; thought: string; onMind: string[] }
 }
 

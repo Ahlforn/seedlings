@@ -60,3 +60,55 @@ test('a reflection writes a diary entry that points at its turns', async () => {
   expect(await runReflection(d, PIP_ID, false)).toBeNull()             // nothing new; no model call
   expect(d.model.requests).toHaveLength(2)
 })
+
+// ---- Final review fixes ----
+const charged = (text: string) => ({ requests: 0, async complete() { this.requests++
+  return { text, usage: { allowance: 0.01, inputTokens: 1, outputTokens: 1, billingSource: 'balance' } } } })
+const waitReply = '{"consider":"hm","do":[{"action":"wait","params":{}}],"because":"."}'
+
+test('I1: a reply charged to balance is not followed by a second ask', async () => {
+  const d = deps([]); const model = charged('nonsense')
+  const out = await runTurn({ ...d, model }, PIP_ID)
+  expect(model.requests).toBe(1)
+  expect(JSON.parse(d.store.getTurn(out.turnId)!.decision).moves[0].action).toBe('wait')
+})
+test('I1: no reflection is asked for when the budget says no', async () => {
+  const d = deps([eat, 'unused']); await runTurn(d, PIP_ID)
+  d.store.setFlag('halt', 'charged_to_balance')
+  expect(await runReflection(d, PIP_ID, false)).toBeNull()
+  expect(d.model.requests).toHaveLength(1)
+})
+test('I2: an unreadable reflection is not asked about the same turns again', async () => {
+  const d = deps([eat, 'nonsense', 'unused']); await runTurn(d, PIP_ID)
+  expect(await runReflection(d, PIP_ID, false)).toBeNull()
+  expect(await runReflection(d, PIP_ID, false)).toBeNull()
+  expect(d.model.requests).toHaveLength(2)
+})
+test('I2: a reflection looks back over at most twelve turns', async () => {
+  const d = deps([...Array(15).fill(waitReply), '{"diary":"Busy.","memories":[],"mind":[],"done":[]}'])
+  const ids: number[] = []
+  for (let i = 0; i < 15; i++) ids.push((await runTurn(d, PIP_ID)).turnId)
+  const id = await runReflection(d, PIP_ID, false)
+  expect(d.model.requests.at(-1)!.user.match(/you thought:/g)).toHaveLength(12)
+  expect(d.store.diaryEntry(id!)).toMatchObject({ fromTurn: ids[3], toTurn: ids[14] })
+})
+test('I2: the things on Pip\'s mind are kept to twelve, newest kept', async () => {
+  const d = deps([])
+  for (let round = 0; round < 6; round++) {
+    const mind = [0, 1, 2].map(i => ({ kind: 'want', text: `want ${round}-${i}` }))
+    const model = { async complete(req: { system: string }) {
+      const text = req.system.includes('You keep a diary') ? JSON.stringify({ diary: 'x', memories: [], mind, done: [] }) : waitReply
+      return { text, usage: { allowance: 0, inputTokens: 0, outputTokens: 0, billingSource: 'go' } } } }
+    await runTurn({ ...d, model }, PIP_ID); await runReflection({ ...d, model }, PIP_ID, false)
+  }
+  const open = d.store.openMindItems(PIP_ID)
+  expect(open).toHaveLength(12)
+  expect(open[0].text).toBe('want 5-2'); expect(open.some(i => i.text.startsWith('want 0-'))).toBe(false)
+})
+test('I4: nothing is asked of the model when the database cannot be written', async () => {
+  const d = deps([waitReply])
+  const broken = { ...d.store, setFlag() { throw new Error('disk full') }, addSpend() { throw new Error('disk full') },
+    addTurn() { throw new Error('disk full') }, saveWorld() { throw new Error('disk full') } }
+  await expect(runTurn({ ...d, store: broken }, PIP_ID)).rejects.toThrow('disk full')
+  expect(d.model.requests).toHaveLength(0)
+})

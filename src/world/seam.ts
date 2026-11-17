@@ -189,7 +189,8 @@ const MOVES: MoveDef[] = [
       params: { target: { hint: 'a place to sleep from the list' } },
     },
     offer(world, c) {
-      if (c.body.tiredness < 0.3 && !clockOf(world.minutes).night) return { ok: false, reason: 'you are not tired and it is not night' }
+      const sleepy = c.body.tiredness >= 0.3 || (clockOf(world.minutes).night && c.body.tiredness >= 0.15)
+      if (!sleepy) return { ok: false, reason: 'you are not tired enough to sleep' }
       return { ok: true, params: { target: sleepSpots(world, c).map((t) => t.name) } }
     },
     perform(world, c, params) {

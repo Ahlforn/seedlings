@@ -29,11 +29,15 @@ export class ModelError extends Error {
 type ChatResponse = {
   choices?: { message?: { content?: unknown } }[]
   usage?: {
-    prompt_tokens?: number
-    completion_tokens?: number
-    opencode?: { allowance?: number; billing_source?: string }
+    prompt_tokens?: unknown
+    completion_tokens?: unknown
+    opencode?: { allowance?: unknown; billing_source?: unknown }
   }
 }
+
+/** A usage figure is only trusted when it is a sane number; anything else counts as not reported. */
+const amount = (value: unknown): number | null =>
+  typeof value === 'number' && Number.isFinite(value) && value >= 0 ? value : null
 
 export function openAiClient(opts: {
   baseUrl: string
@@ -94,10 +98,10 @@ export function openAiClient(opts: {
       return {
         text,
         usage: {
-          allowance: data.usage?.opencode?.allowance ?? null,
-          inputTokens: data.usage?.prompt_tokens ?? 0,
-          outputTokens: data.usage?.completion_tokens ?? 0,
-          billingSource: data.usage?.opencode?.billing_source ?? null,
+          allowance: amount(data.usage?.opencode?.allowance),
+          inputTokens: amount(data.usage?.prompt_tokens) ?? 0,
+          outputTokens: amount(data.usage?.completion_tokens) ?? 0,
+          billingSource: typeof data.usage?.opencode?.billing_source === 'string' ? data.usage.opencode.billing_source : null,
         },
       }
     },
