@@ -200,3 +200,15 @@ test('the owner choices are in the state', async () => {
   expect(s.owner.facilities).toEqual([{ kind: 'art', name: 'an art place' }, { kind: 'cafe', name: 'an internet café' }])
   expect(s.owner.sites.length).toBeGreaterThan(0); expect(s.owner.buildings).toEqual([])
 })
+
+// Final review #1: behind a reverse proxy the Host header is rewritten
+test('an event from the watch page is accepted behind a proxy that rewrites Host, and a cross-site one is not', async () => {
+  await login('secret')
+  const event = JSON.stringify({ kind: 'weather', weather: 'a storm' })
+  const proxied = { 'content-type': 'application/json', cookie, host: '127.0.0.1:8787', origin: 'https://town.example' }
+  expect((await post('/api/event', event, { ...proxied, 'sec-fetch-site': 'same-origin' })).status).toBe(200)
+  expect((await post('/api/event', event, { ...proxied, 'x-forwarded-host': 'town.example' })).status).toBe(200)
+  expect((await post('/api/event', event, { ...proxied, 'sec-fetch-site': 'cross-site' })).status).toBe(403)
+  expect((await post('/api/event', event, proxied)).status).toBe(403)
+  expect(applied).toHaveLength(2)
+})

@@ -124,7 +124,8 @@ New facilities are folders under `src/facilities/`, following `src/facilities/co
 
 `deploy/seedlings.service` is a systemd unit with instructions at the top. The page has no HTTPS of
 its own: put it behind your web server or a tunnel, since the password and session cookie travel
-over that connection.
+over that connection. Behind nginx, pass the host on so owner events are recognised as coming from the
+page: `proxy_set_header Host $host;` (or `X-Forwarded-Host`).
 
 ## Development
 

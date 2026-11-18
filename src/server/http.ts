@@ -212,13 +212,21 @@ export function createServer(deps: {
 
   /** Only the signed-in owner, only from the watch page itself, only JSON: a link or form elsewhere cannot send one. */
   async function event(req: IncomingMessage, res: ServerResponse): Promise<void> {
+    // Behind a reverse proxy the Host header is often rewritten, so the browser's own word that the request
+    // comes from this page (Sec-Fetch-Site), or the host the proxy forwards, counts as well. A request
+    // the browser marks as cross-site is refused whatever its other headers say.
+    const site = req.headers['sec-fetch-site']
     const origin = req.headers.origin
-    let fromHere = false
+    let originHost = ''
     try {
-      fromHere = origin !== undefined && new URL(origin).host === req.headers.host
+      originHost = origin ? new URL(origin).host : ''
     } catch {
-      fromHere = false
+      originHost = ''
     }
+    const forwarded = String(req.headers['x-forwarded-host'] ?? '').split(',')[0].trim()
+    const fromHere = site !== undefined
+      ? site === 'same-origin'
+      : originHost !== '' && (originHost === req.headers.host || originHost === forwarded)
     if (!fromHere) return sendJson(res, 403, { error: 'events are only accepted from the watch page' })
     if (!(req.headers['content-type'] ?? '').toLowerCase().startsWith('application/json')) return sendJson(res, 415, { error: 'send JSON' })
     let input: unknown
