@@ -14,14 +14,16 @@ import { createBudgetKeeper, DEFAULT_PACING } from '../../src/budget/keeper.ts'
 
 let server: Server; let store: Store; let world: World; let base = ''; let port = 0; let cookie = ''; let trouble = ''
 let thoughts: Record<string, string> = {}
+let applied: unknown[] = []
 const listeners = new Set<() => void>()
 
 beforeEach(async () => {
-  store = openStore(':memory:'); world = createWorld(1); cookie = ''; trouble = ''; thoughts = {}; listeners.clear()
+  store = openStore(':memory:'); world = createWorld(1); cookie = ''; trouble = ''; thoughts = {}; applied = []; listeners.clear()
   const budget = createBudgetKeeper(store, { monthlyAllowance: 60, periodStartDay: 1, ...DEFAULT_PACING }, () => Date.UTC(2026, 10, 1))
   const root = mkdtempSync(join(tmpdir(), 'seedlings-')); mkdirSync(join(root, 'web'))
   writeFileSync(join(root, 'web', 'index.html'), '<p>town</p>'); writeFileSync(join(root, 'secret.txt'), 'top secret')
   server = createServer({ world: () => world, store, budget, password: 'secret', staticDir: join(root, 'web'),
+    applyEvent: async (input) => { applied.push(input); return { ok: true, message: 'done' } },
     scheduler: { onChange: (fn) => { listeners.add(fn); return () => { listeners.delete(fn) } }, lastThought: (id = 'pip') => thoughts[id] ?? 'hm', trouble: () => trouble } })
   await new Promise<void>((resolve) => server.listen(0, resolve))
   port = (server.address() as AddressInfo).port; base = `http://localhost:${port}`
@@ -168,4 +170,33 @@ test('café counts and recent misses are in the state', async () => {
   const s = await getJson('/api/state')
   expect(s.cafe).toMatchObject({ today: 0, total: 3, missing: 1, failed: 1 })
   expect(s.cafe.recentMisses).toEqual([{ who: 'Mo', words: 'x', clock: '06:40, day 1' }])
+})
+
+// ---- Stage 3: owner events ----
+const post = (path: string, body: string, headers: Record<string, string>) => new Promise<{ status: number; body: string }>((resolve, reject) => {
+  const req = request({ host: 'localhost', port, path, method: 'POST', headers: { ...headers, 'content-length': Buffer.byteLength(body) } }, (res) => {
+    let text = ''; res.on('data', (chunk) => { text += chunk }); res.on('end', () => resolve({ status: res.statusCode ?? 0, body: text }))
+  })
+  req.on('error', reject); req.end(body)
+})
+// Review Focus 2
+test('an event is accepted only as JSON, from the page itself, from the signed-in owner', async () => {
+  const event = JSON.stringify({ kind: 'weather', weather: 'a storm' })
+  const json = { 'content-type': 'application/json' }
+  expect((await post('/api/event', event, { ...json, origin: `http://localhost:${port}` })).status).toBe(401)
+  await login('secret')
+  expect((await post('/api/event', event, { ...json, cookie, origin: 'http://evil.example' })).status).toBe(403)
+  expect((await post('/api/event', event, { ...json, cookie })).status).toBe(403)
+  expect((await post('/api/event', event, { 'content-type': 'text/plain', cookie, origin: `http://localhost:${port}` })).status).toBe(415)
+  expect((await post('/api/event', '{nope', { ...json, cookie, origin: `http://localhost:${port}` })).status).toBe(400)
+  expect(applied).toEqual([])
+  const ok = await post('/api/event', event, { ...json, cookie, origin: `http://localhost:${port}` })
+  expect(ok.status).toBe(200); expect(JSON.parse(ok.body)).toEqual({ ok: true, message: 'done' })
+  expect(applied).toEqual([{ kind: 'weather', weather: 'a storm' }])
+})
+test('the owner choices are in the state', async () => {
+  const s = await getJson('/api/state')
+  expect(s.owner.weathers).toEqual(['dry', 'a thin rain', 'raining hard', 'a storm'])
+  expect(s.owner.facilities).toEqual([{ kind: 'art', name: 'an art place' }, { kind: 'cafe', name: 'an internet café' }])
+  expect(s.owner.sites.length).toBeGreaterThan(0); expect(s.owner.buildings).toEqual([])
 })

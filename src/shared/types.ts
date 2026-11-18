@@ -144,6 +144,8 @@ export type StateView = {
   }[]
   /** newest first */
   events: { clock: string; text: string }[]
+  /** what the event form offers: free sites, building names, facility kinds, the weathers */
+  owner: { sites: string[]; buildings: string[]; facilities: { kind: string; name: string }[]; weathers: string[] }
   /** the café's lookups: today's count, totals, and the latest that found nothing */
   cafe: { today: number; total: number; missing: number; failed: number; recentMisses: { who: string; words: string; clock: string }[] }
   /** the newest pictures, hanging or taken down, newest first */

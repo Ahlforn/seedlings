@@ -3,6 +3,7 @@
 import type { StateView } from '../src/shared/types.ts'
 import { characterAt, drawTown } from './draw.ts'
 import { onSelect, select, selectedId, showDiary, showState } from './panel.ts'
+import { setupEvents } from './events.ts'
 
 const RECONNECT_MS = 3000
 const canvas = document.getElementById('town') as HTMLCanvasElement
@@ -86,5 +87,6 @@ async function start(): Promise<void> {
   }
 }
 
+setupEvents(() => latest)
 window.addEventListener('resize', paint)
 void start()

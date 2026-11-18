@@ -485,6 +485,39 @@ const MOVES: MoveDef[] = [
   },
   {
     spec: {
+      name: 'offer_home', label: 'offering someone a home', tier: 'origin',
+      description: 'Offer someone near you who has no home a place to live.',
+      params: {
+        who: { hint: 'someone near you with no home' },
+        home: { hint: 'a home with room, from the list' },
+      },
+    },
+    offer(world, c) {
+      const homeless = withinHearing(world, c).filter((other) => other.tier === 'inhabitant' && other.homeId === null)
+      if (homeless.length === 0) return { ok: false, reason: 'nobody near needs a home' }
+      const homes = homesWithRoom(world)
+      if (homes.length === 0) return { ok: false, reason: 'there is no finished home with room' }
+      return { ok: true, params: { who: homeless.map((other) => other.name), home: homes.map((b) => b.name) } }
+    },
+    perform(world, c, params) {
+      const who = find(withinHearing(world, c), params.who)!
+      const home = find(homesWithRoom(world), params.home)!
+      who.homeId = home.id
+      return {
+        ok: true,
+        done: {
+          message: `${who.name} will live at ${home.name}.`, moodDelta: 0.1, minutes: 10, label: `offering ${who.name} a home`,
+          event: `${c.name} offered ${who.name} a home at ${home.name}`,
+          leaves: [
+            { characterId: c.id, text: `I gave ${who.name} a home at ${home.name}.`, kind: 'person' },
+            { characterId: who.id, text: `${c.name} gave me a home at ${home.name}.`, kind: 'person' },
+          ],
+        },
+      }
+    },
+  },
+  {
+    spec: {
       name: 'speak', label: 'saying something out loud', tier: 'inhabitant',
       description: 'Say something out loud, to someone near or to whoever is listening. Everyone near enough hears it.',
       params: {

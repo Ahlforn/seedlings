@@ -16,7 +16,29 @@
         <span class="meter" aria-hidden="true"><span id="meter-fill"></span></span>
         <span id="left" class="quiet"></span>
       </span>
+      <button id="event-open" class="event-open" type="button">Cause an event</button>
     </header>
+    <dialog id="event-dialog" class="event-dialog" aria-labelledby="event-title">
+      <form id="event-form">
+        <h2 id="event-title">Cause an event</h2>
+        <label>Event
+          <select id="event-kind">
+            <option value="weather">Change the weather</option>
+            <option value="close">Close a building</option>
+            <option value="reopen">Reopen a building</option>
+            <option value="break">Break a building</option>
+            <option value="stranger">A stranger arrives</option>
+            <option value="facility">Place a facility</option>
+          </select>
+        </label>
+        <div id="event-fields" class="event-fields"></div>
+        <p id="event-answer" role="status"></p>
+        <div class="event-buttons">
+          <button id="event-close" type="button">Close</button>
+          <button id="event-send" type="submit">Send</button>
+        </div>
+      </form>
+    </dialog>
     <main class="layout">
       <section class="town" aria-label="The town">
         <canvas id="town"></canvas>

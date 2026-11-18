@@ -14,6 +14,9 @@ import { clockOf } from '../world/clock.ts'
 import { RAIN_WORDS } from '../world/seam.ts'
 import { PIP_ID } from '../world/world.ts'
 import { usesToday } from '../facilities/contract.ts'
+import { FACILITIES } from '../facilities/index.ts'
+import { candidateSites } from '../world/sites.ts'
+import type { EventResult } from '../town/events.ts'
 
 const COOKIE = 'seedlings_session'
 const SAID_FOR_MINUTES = 30
@@ -23,6 +26,7 @@ const EVENTS_SHOWN = 20
 const GALLERY_SHOWN = 12
 const MISSES_SHOWN = 10
 const MAX_LOGIN_BODY = 10_000
+const MAX_EVENT_BODY = 10_000
 const WRONG_PASSWORD_DELAY_MS = 300
 
 const REASONS: Record<BudgetReason, string> = {
@@ -94,6 +98,12 @@ export function stateView(world: World, store: Store, budget: BudgetKeeper, thou
         clock: clockOf(l.worldMinutes).label,
       })),
     },
+    owner: {
+      sites: candidateSites(world).map((s) => s.name),
+      buildings: world.buildings.map((b) => b.name),
+      facilities: FACILITIES.map((f) => ({ kind: f.kind, name: f.name })),
+      weathers: [...RAIN_WORDS],
+    },
     gallery: store.gallery(GALLERY_SHOWN).map((p) => ({
       id: p.id, title: p.title, byName: p.byName, mood: p.mood, description: p.description, clock: clockOf(p.minute).label, shapes: p.shapes,
     })),
@@ -164,10 +174,13 @@ export function createServer(deps: {
   store: Store
   budget: BudgetKeeper
   scheduler: Pick<Scheduler, 'onChange' | 'lastThought' | 'trouble'>
+  /** carries out an owner event; the server only checks who sent it and how */
+  applyEvent(input: unknown): Promise<EventResult>
   password: string
   staticDir: string
 }): Server {
   const sessions = new Set<string>()
+  const streams = new Set<() => void>()
   const staticRoot = resolve(deps.staticDir)
   const state = () => stateView(deps.world(), deps.store, deps.budget, (id) => deps.scheduler.lastThought(id), deps.scheduler.trouble())
 
@@ -197,11 +210,37 @@ export function createServer(deps: {
     res.writeHead(302, { Location: '/', 'Set-Cookie': `${COOKIE}=${token}; HttpOnly; SameSite=Strict; Path=/` }).end()
   }
 
+  /** Only the signed-in owner, only from the watch page itself, only JSON: a link or form elsewhere cannot send one. */
+  async function event(req: IncomingMessage, res: ServerResponse): Promise<void> {
+    const origin = req.headers.origin
+    let fromHere = false
+    try {
+      fromHere = origin !== undefined && new URL(origin).host === req.headers.host
+    } catch {
+      fromHere = false
+    }
+    if (!fromHere) return sendJson(res, 403, { error: 'events are only accepted from the watch page' })
+    if (!(req.headers['content-type'] ?? '').toLowerCase().startsWith('application/json')) return sendJson(res, 415, { error: 'send JSON' })
+    let input: unknown
+    try {
+      input = JSON.parse(await readBody(req, MAX_EVENT_BODY))
+    } catch (error) {
+      if (error instanceof Error && error.message === 'body too large') return sendJson(res, 413, { error: 'too large' })
+      return sendJson(res, 400, { error: 'not JSON' })
+    }
+    const result = await deps.applyEvent(input)
+    sendJson(res, 200, result)
+    // Show the change at once rather than at the next step.
+    for (const send of streams) send()
+  }
+
   function stream(req: IncomingMessage, res: ServerResponse): void {
     res.writeHead(200, { 'Content-Type': 'text/event-stream; charset=utf-8', 'Cache-Control': 'no-store', Connection: 'keep-alive' })
     const send = () => res.write(`data: ${JSON.stringify(state())}\n\n`)
     send()
     const stop = deps.scheduler.onChange(send)
+    streams.add(send)
+    req.on('close', () => { streams.delete(send) })
     req.on('close', stop)
   }
 
@@ -246,6 +285,7 @@ export function createServer(deps: {
       res.writeHead(302, { Location: '/login' }).end()
       return
     }
+    if (rawPath === '/api/event' && req.method === 'POST') return event(req, res)
     if (req.method !== 'GET') {
       res.writeHead(405).end()
       return

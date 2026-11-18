@@ -192,3 +192,21 @@ test('every result says who heard it and what it leaves behind', () => {
   const refused = act(createWorld(1), PIP_ID, { action: 'fly', params: {} })
   expect(refused).toMatchObject({ heardBy: [], leaves: [], created: null })
 })
+
+// ---- Stage 3: homes for the homeless ----
+import { home } from './helpers.ts'
+test('Pip can offer a homeless inhabitant a home', () => {
+  const w = createWorld(1); const pip = character(w, PIP_ID)
+  const burrow = home(w, 'Burrow'); const bram = addInhabitant(w, 'Bram', pip.at)
+  expect(observe(w, PIP_ID).available.find((m) => m.name === 'offer_home')!.params).toEqual({ who: ['Bram'], home: ['Burrow'] })
+  const r = act(w, PIP_ID, { action: 'offer_home', params: { who: 'bram', home: 'burrow' } })
+  expect(r).toMatchObject({ success: true, message: 'Bram will live at Burrow.' })
+  expect(bram.homeId).toBe(burrow.id)
+  expect(r.leaves).toEqual([
+    { characterId: PIP_ID, text: 'I gave Bram a home at Burrow.', kind: 'person' },
+    { characterId: bram.id, text: 'Pip gave me a home at Burrow.', kind: 'person' },
+  ])
+  expect(w.events.at(-1)!.text).toBe('Pip offered Bram a home at Burrow')
+  expect(observe(w, PIP_ID).cannot).toContain('offer_home: nobody near needs a home')
+  expect(observe(w, bram.id).available.map((m) => m.name)).not.toContain('offer_home')
+})

@@ -6,7 +6,7 @@ const person = (id: string, name: string, x: number, y: number, tier: 'origin' |
   id, name, tier, look: tier === 'origin' ? null : { colour: 'blue' as const, mark: 'ears' as const }, home: '', at: { x, y },
   asleep: false, doing: 'idle', said: '', mood: 0, thought: '', onMind: [] })
 const state: StateView = {
-  clock: '06:00, day 1', day: 1, night: false, weather: 'dry', size: 24, features: [], buildings: [], notes: [], events: [], gallery: [], cafe: { today: 0, total: 0, missing: 0, failed: 0, recentMisses: [] },
+  clock: '06:00, day 1', day: 1, night: false, weather: 'dry', size: 24, features: [], buildings: [], notes: [], events: [], gallery: [], owner: { sites: [], buildings: [], facilities: [], weathers: [] }, cafe: { today: 0, total: 0, missing: 0, failed: 0, recentMisses: [] },
   population: { count: 1, limit: 1 }, budget: { leftToday: 1, canThink: true, reason: 'thinking', trouble: '' },
   characters: [person('pip', 'Pip', 12, 12, 'origin'), person('c4', 'Mo', 14, 12, 'inhabitant')],
 }

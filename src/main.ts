@@ -10,6 +10,7 @@ import { wanderingClient } from './model/scripted.ts'
 import { createServer } from './server/http.ts'
 import { openStore } from './store/store.ts'
 import { createScheduler } from './town/scheduler.ts'
+import { applyEvent } from './town/events.ts'
 import type { FacilityServices } from './facilities/contract.ts'
 import { fakeWikipedia } from './facilities/cafe/fake.ts'
 import { wikipediaUserAgent } from './facilities/cafe/wikipedia.ts'
@@ -42,8 +43,10 @@ export async function startTown(config: Config): Promise<{ port: number; stop():
   )
   const fetchJson = config.fakeModel ? fakeWikipedia() : fetchJsonWith(wikipediaUserAgent(config.wikiContact))
   const services: FacilityServices = { store, now: Date.now, fetchJson }
-  const scheduler = createScheduler({ world, store, model, budget, config, now: Date.now, services })
+  const town = { world, store, model, budget, config, now: Date.now, services }
+  const scheduler = createScheduler(town)
   const server = createServer({
+    applyEvent: (input) => applyEvent(town, input),
     world: () => world,
     store,
     budget,
