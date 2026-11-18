@@ -10,9 +10,20 @@ import { wanderingClient } from './model/scripted.ts'
 import { createServer } from './server/http.ts'
 import { openStore } from './store/store.ts'
 import { createScheduler } from './town/scheduler.ts'
+import type { FacilityServices } from './facilities/contract.ts'
 import { createWorld, migrateWorld } from './world/world.ts'
 
 const FAKE_INTERVAL_MS = 1000
+const FETCH_TIMEOUT_MS = 10_000
+
+/** GET and parse JSON, identifying the town honestly. Rejects on network errors, timeouts and non-2xx answers. */
+function fetchJsonWith(userAgent: string): FacilityServices['fetchJson'] {
+  return async (url) => {
+    const response = await fetch(url, { headers: { 'User-Agent': userAgent, Accept: 'application/json' }, signal: AbortSignal.timeout(FETCH_TIMEOUT_MS) })
+    if (!response.ok) throw new Error(`${url} answered ${response.status}`)
+    return response.json()
+  }
+}
 
 export async function startTown(config: Config): Promise<{ port: number; stop(): Promise<void> }> {
   const store = openStore(config.dbPath)
@@ -27,7 +38,8 @@ export async function startTown(config: Config): Promise<{ port: number; stop():
     Date.now,
     () => world.characters.filter((c) => c.tier === 'inhabitant').length,
   )
-  const scheduler = createScheduler({ world, store, model, budget, config, now: Date.now })
+  const services: FacilityServices = { store, now: Date.now, fetchJson: fetchJsonWith('seedlings-town/0.1') }
+  const scheduler = createScheduler({ world, store, model, budget, config, now: Date.now, services })
   const server = createServer({
     world: () => world,
     store,

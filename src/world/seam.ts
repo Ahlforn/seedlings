@@ -7,6 +7,9 @@
 import { COLOURS, EXTRAS, MARKS, PURPOSES, ROOFS, cleanText, validateRecipe, workUnits } from '../shared/recipe.ts'
 import type { Act, Building, Character, MemoryKind, Purpose, Tile, Urgency, World } from '../shared/types.ts'
 import { clockOf } from './clock.ts'
+import { FACILITIES, facilityOf } from '../facilities/index.ts'
+import type { Facility, FacilityMove, FacilityServices } from '../facilities/contract.ts'
+import { same } from '../shared/names.ts'
 import { HEARD_MAX, NOTES_MAX, RESERVED_NAMES, distance, homesWithRoom, inUse, others, residents, withinHearing } from './people.ts'
 import { candidateSites } from './sites.ts'
 import { addEvent, character, clamp, random, urgency } from './world.ts'
@@ -56,6 +59,8 @@ export type Observation = {
   heard: string[]
   /** notes within arm's reach */
   notes: string[]
+  /** what a facility here shows: pictures on the wall, its hours when shut */
+  here: string[]
 }
 export type Left = { characterId: string; text: string; kind: MemoryKind }
 export type ActResult = {
@@ -103,9 +108,7 @@ type MoveDef = {
   perform(world: World, c: Character, params: Record<string, string>): Outcome
 }
 
-/** Names match whatever their case, and with or without a leading "the" or "a": models drop both. */
-const plain = (name: string) => name.trim().toLowerCase().replace(/^(the|an|a)\s+/, '')
-export const same = (a: string, b: string) => plain(a) === plain(b)
+export { same } from '../shared/names.ts'
 const finished = (b: Building) => b.workLeft === 0
 const needsWork = (b: Building) => !finished(b) || b.repairLeft > 0
 
@@ -169,12 +172,50 @@ function find<T extends { name: string }>(list: T[], name: string | undefined): 
   return name === undefined ? undefined : list.find((item) => same(item.name, name))
 }
 
+/**
+ * Makes a new inhabitant from a sheet in the shape create_inhabitant takes, or says why not.
+ * Used by Pip's create_inhabitant and by the owner's stranger.
+ */
+export function bringToLife(
+  world: World,
+  sheet: Record<string, string>,
+  place: { at: Tile; homeId: string | null },
+): { ok: true; character: Character } | { ok: false; reason: string } {
+  const name = cleanText(sheet.name ?? '', NAME_MAX)
+  if (name === '') return { ok: false, reason: 'They need a name.' }
+  const taken = [...world.characters, ...world.buildings, ...world.features].some((t) => same(t.name, name)) ||
+    RESERVED_NAMES.some((word) => same(word, name))
+  if (taken) return { ok: false, reason: `There is already something called ${name}. Choose another name.` }
+  const who = cleanText(sheet.who ?? '', WHO_MAX)
+  if (who === '') return { ok: false, reason: 'Say who they are in a sentence or two.' }
+  const traits = listOf(sheet.traits, MAX_TRAITS)
+  if (traits.length === 0) return { ok: false, reason: 'Give them at least one trait.' }
+  // Stored as the kit names them: the model may have written "the Blue" for blue.
+  const colour = COLOURS.find((x) => same(x, sheet.colour ?? ''))
+  const mark = MARKS.find((x) => same(x, sheet.mark ?? ''))
+  if (!colour) return { ok: false, reason: `Choose a colour from: ${COLOURS.join(', ')}.` }
+  if (!mark) return { ok: false, reason: `Choose a mark from: ${MARKS.join(', ')}.` }
+  const character: Character = {
+    id: `c${world.nextId++}`, name, tier: 'inhabitant', at: { x: place.at.x, y: place.at.y },
+    body: { hunger: 0.2, tiredness: 0.1, mood: 0.1 }, asleep: false, busyUntil: world.minutes, doing: 'idle',
+    said: '', saidAt: 0, queue: [], queueTurn: 0, homeId: place.homeId,
+    look: { colour, mark },
+    sheet: {
+      name, you: cleanText(sheet.kind ?? '', KIND_MAX) || 'a small creature', core: who, traits,
+      values: listOf(sheet.cares_about, MAX_OTHERS), fears: listOf(sheet.fears, MAX_OTHERS),
+    },
+    heard: [],
+  }
+  world.characters.push(character)
+  return { ok: true, character }
+}
+
 /** "shy, watchful, , kind" → ['shy', 'watchful', 'kind'], at most max of them. */
 function listOf(text: string | undefined, max: number): string[] {
   return (text ?? '').split(',').map((item) => cleanText(item, LIST_ITEM_MAX)).filter((item) => item !== '').slice(0, max)
 }
 
-function uniqueBuildingName(world: World, wanted: string, purpose: Purpose): string {
+export function uniqueBuildingName(world: World, wanted: string, purpose: Purpose): string {
   const base = wanted || { home: 'the new home', food: 'the new food place', other: 'the new building' }[purpose]
   let name = base
   for (let n = 2; world.buildings.some((b) => same(b.name, name)) || world.features.some((f) => same(f.name, name)); n++) {
@@ -277,7 +318,7 @@ const MOVES: MoveDef[] = [
       description: 'Mark out a new building and decide what it will be. It then needs work before it is finished.',
       params: {
         site: { hint: 'where it goes, from the list' },
-        purpose: { values: PURPOSES, hint: 'home is somewhere to sleep, food is somewhere to eat, other is anything else' },
+        purpose: { values: PURPOSES, hint: 'home is somewhere to sleep, food is somewhere to eat, other is anything else; or a kind of place from WHERE YOU ARE' },
         name: { hint: 'what you call it, a few words' },
         about: { hint: 'what it is for, in your own words' },
         footprint: { values: ['1', '2', '3'], hint: 'how wide, in plots' },
@@ -296,11 +337,12 @@ const MOVES: MoveDef[] = [
       }
       const sites = candidateSites(world)
       if (sites.length === 0) return { ok: false, reason: 'there is no room left to build' }
-      return { ok: true, params: { site: sites.map((s) => s.name) } }
+      return { ok: true, params: { site: sites.map((s) => s.name), purpose: [...PURPOSES, ...FACILITIES.map((f) => f.kind)] } }
     },
     perform(world, c, params) {
       const site = find(candidateSites(world), params.site)!
-      const purpose = PURPOSES.find((p) => same(p, params.purpose ?? 'other'))
+      const kind = FACILITIES.find((f) => same(f.kind, params.purpose ?? ''))?.kind ?? null
+      const purpose = kind ? 'other' : PURPOSES.find((p) => same(p, params.purpose ?? 'other'))
       if (!purpose) return { ok: false, reason: `"${cleanText(params.purpose, 30)}" is not a purpose. Choose one of: ${PURPOSES.join(', ')}.` }
       const checked = validateRecipe(params)
       if (!checked.ok) return { ok: false, reason: checked.reason }
@@ -313,7 +355,7 @@ const MOVES: MoveDef[] = [
       world.buildings.push({
         id: `b${world.nextId++}`, name, purpose, about: cleanText(params.about ?? '', ABOUT_MAX),
         recipe: checked.recipe, at: { x: site.at.x, y: site.at.y }, workLeft: work, workTotal: work,
-        startedDay: clockOf(world.minutes).day, facility: null, builtBy: 'origin', closed: false, repairLeft: 0,
+        startedDay: clockOf(world.minutes).day, facility: kind, builtBy: 'origin', closed: false, repairLeft: 0,
       })
       return { ok: true, done: { message: `You mark out the ground for ${name}. It needs ${work} spells of work before it is finished.`, moodDelta: 0, minutes, label: `starting ${name}`, event: `${c.name} marked out a building site for ${name}` } }
     },
@@ -422,30 +464,11 @@ const MOVES: MoveDef[] = [
       return { ok: true, params: { home: homes.map((b) => b.name), colour: COLOURS, mark: MARKS } }
     },
     perform(world, c, params) {
-      const name = cleanText(params.name ?? '', NAME_MAX)
-      if (name === '') return { ok: false, reason: 'They need a name.' }
-      const taken = [...world.characters, ...world.buildings, ...world.features].some((t) => same(t.name, name)) ||
-        RESERVED_NAMES.some((word) => same(word, name))
-      if (taken) return { ok: false, reason: `There is already something called ${name}. Choose another name.` }
-      const who = cleanText(params.who ?? '', WHO_MAX)
-      if (who === '') return { ok: false, reason: 'Say who they are in a sentence or two.' }
-      const traits = listOf(params.traits, MAX_TRAITS)
-      if (traits.length === 0) return { ok: false, reason: 'Give them at least one trait.' }
       const home = find(homesWithRoom(world), params.home)!
-      const id = `c${world.nextId++}`
+      const born = bringToLife(world, params, { at: home.at, homeId: home.id })
+      if (!born.ok) return { ok: false, reason: born.reason }
+      const { id, name } = born.character
       const minutes = walk(c, home.at) + 60
-      world.characters.push({
-        id, name, tier: 'inhabitant', at: { x: home.at.x, y: home.at.y },
-        body: { hunger: 0.2, tiredness: 0.1, mood: 0.1 }, asleep: false, busyUntil: world.minutes, doing: 'idle',
-        said: '', saidAt: 0, queue: [], queueTurn: 0, homeId: home.id,
-        // Stored as the kit names them: the model may have written "the Blue" for blue.
-        look: { colour: COLOURS.find((x) => same(x, params.colour ?? ''))!, mark: MARKS.find((x) => same(x, params.mark ?? ''))! },
-        sheet: {
-          name, you: cleanText(params.kind ?? '', KIND_MAX) || 'a small creature', core: who, traits,
-          values: listOf(params.cares_about, MAX_OTHERS), fears: listOf(params.fears, MAX_OTHERS),
-        },
-        heard: [],
-      })
       return {
         ok: true,
         done: {
@@ -521,8 +544,17 @@ const MOVES: MoveDef[] = [
   },
 ]
 
-const allows = (tier: Character['tier'], move: MoveDef) => move.spec.tier === 'inhabitant' || tier === 'origin'
-const tierAllows = (c: Character, move: MoveDef) => allows(c.tier, move)
+const allows = (tier: Character['tier'], spec: MoveSpec) => spec.tier === 'inhabitant' || tier === 'origin'
+const tierAllows = (c: Character, move: MoveDef) => allows(c.tier, move.spec)
+
+/** Facility moves any facility offers, each once, in registry order. */
+function facilitySpecs(tier: Character['tier']): MoveSpec[] {
+  const specs: MoveSpec[] = []
+  for (const f of FACILITIES) {
+    for (const move of f.moves) if (allows(tier, move.spec) && !specs.some((s) => s.name === move.spec.name)) specs.push(move.spec)
+  }
+  return specs
+}
 
 export function manifest(tier: Character['tier']): Manifest {
   const origin = tier === 'origin'
@@ -536,10 +568,48 @@ export function manifest(tier: Character['tier']): Manifest {
       origin ? 'a building site is a building you have started and not finished' : 'a building site is a building Pip has started and not finished',
       'a home is somewhere to sleep, and a food place is somewhere to eat',
       'the hollow tree is where you can sleep until there is a home',
+      ...FACILITIES.map((f) => `${f.name} (build it with purpose "${f.kind}"): ${f.about}`),
     ],
     stance: 'Nobody tells you what to do with your day.',
-    moves: MOVES.filter((move) => allows(tier, move)).map((move) => move.spec),
+    moves: [...MOVES.filter((move) => allows(tier, move.spec)).map((move) => move.spec), ...facilitySpecs(tier)],
   }
+}
+
+const two = (n: number) => String(n).padStart(2, '0')
+/** Within a tile of any tile the building covers. */
+const standingAt = (c: Character, b: Building) =>
+  Math.abs(c.at.x - Math.max(b.at.x, Math.min(c.at.x, b.at.x + b.recipe.footprint - 1))) +
+  Math.abs(c.at.y - Math.max(b.at.y, Math.min(c.at.y, b.at.y + b.recipe.footprint - 1))) <= 1
+const isOpen = (f: Facility, minutes: number) => {
+  if (!f.hours) return true
+  const hour = clockOf(minutes).hour
+  return hour >= f.hours.opens && hour < f.hours.closes
+}
+
+type Here = { facility: Facility; building: Building; move: FacilityMove }
+type FacilityOffer = { ok: true; here: Here; params: Record<string, string[]> } | { ok: false; reason: string }
+
+/** Facility moves for where this character stands: offered, refused with a reason, and what is here to see. */
+function facilitiesHere(world: World, c: Character): { offers: Map<string, FacilityOffer>; lines: string[] } {
+  const offers = new Map<string, FacilityOffer>()
+  const lines: string[] = []
+  for (const b of world.buildings) {
+    const facility = facilityOf(b.facility)
+    if (!facility || !inUse(b) || !standingAt(c, b)) continue
+    const open = isOpen(facility, world.minutes)
+    if (!open) lines.push(`${b.name} opens at ${two(facility.hours!.opens)}:00.`)
+    else lines.push(...(facility.observe?.(world, b) ?? []))
+    for (const move of facility.moves) {
+      if (!allows(c.tier, move.spec) || offers.has(move.spec.name)) continue
+      if (!open) {
+        offers.set(move.spec.name, { ok: false, reason: `${b.name} is shut until ${two(facility.hours!.opens)}:00` })
+        continue
+      }
+      const offer = move.offer({ world, c, building: b })
+      offers.set(move.spec.name, typeof offer === 'string' ? { ok: false, reason: offer } : { ok: true, here: { facility, building: b, move }, params: offer })
+    }
+  }
+  return { offers, lines }
 }
 
 export function observe(world: World, characterId: string): Observation {
@@ -555,6 +625,11 @@ export function observe(world: World, characterId: string): Observation {
     const offer = move.offer(world, c)
     if (offer.ok) available.push({ name: move.spec.name, params: offer.params })
     else cannot.push(`${move.spec.name}: ${offer.reason}`)
+  }
+  const facilities = facilitiesHere(world, c)
+  for (const [name, offer] of facilities.offers) {
+    if (offer.ok) available.push({ name, params: offer.params })
+    else cannot.push(`${name}: ${offer.reason}`)
   }
 
   const homeOf = c.homeId === null ? undefined : world.buildings.find((b) => b.id === c.homeId)
@@ -593,32 +668,32 @@ export function observe(world: World, characterId: string): Observation {
     people,
     heard,
     notes,
+    here: facilities.lines,
   }
 }
+
+const NOTHING_LEFT = { heardBy: [], addressed: null, leaves: [], created: null }
 
 function refuse(world: World, c: Character, message: string, label: string): ActResult {
   c.body.mood = clamp(c.body.mood + REFUSAL_MOOD, -1, 1)
   addEvent(world, `${c.name} tried ${label} and it did not work`)
-  return { success: false, message, moodDelta: REFUSAL_MOOD, minutes: 0, label, heardBy: [], addressed: null, leaves: [], created: null }
+  return { success: false, message, moodDelta: REFUSAL_MOOD, minutes: 0, label, ...NOTHING_LEFT }
 }
 
-/** Carries out a move, or refuses it in plain words. Never throws for anything a mind can send. */
-export function act(world: World, characterId: string, move: Act): ActResult {
-  const c = character(world, characterId)
-  const action = typeof move.action === 'string' ? move.action : ''
-  const params = move.params ?? {}
-  const def = MOVES.find((m) => m.spec.name === action)
-  const label = def?.spec.label ?? `trying to ${cleanText(action, 30) || 'do something'}`
+/** Not the character's doing: no mood penalty and nothing in the town's events. */
+function quietly(message: string, label: string): ActResult {
+  return { success: false, message, moodDelta: 0, minutes: 0, label, ...NOTHING_LEFT }
+}
 
+/** The checks every move goes through: awake, free, allowed here, and given choices that are on offer. */
+function check(world: World, c: Character, spec: MoveSpec | undefined, offer: Offer | undefined, params: Record<string, string>, label: string): ActResult | null {
   if (c.asleep) return refuse(world, c, 'You are asleep.', label)
   if (world.minutes < c.busyUntil) return refuse(world, c, `You are still busy ${c.doing}.`, label)
-  if (!def || !tierAllows(c, def)) return refuse(world, c, "That is not something you can do here.", label)
-
-  const offer = def.offer(world, c)
+  if (!spec || !offer) return refuse(world, c, "That is not something you can do here.", label)
   if (!offer.ok) return refuse(world, c, `You cannot do that right now: ${offer.reason}.`, label)
   for (const [key, choices] of Object.entries(offer.params)) {
     const given = params[key]
-    if (given === undefined && def.spec.params[key]?.optional) continue
+    if (given === undefined && spec.params[key]?.optional) continue
     if (given === undefined || !choices.some((choice) => same(choice, String(given)))) {
       const shown = given === undefined ? 'nothing' : `"${cleanText(String(given), 40)}"`
       // Naming a building that is shut or broken gets told so, rather than a list it is missing from.
@@ -627,11 +702,10 @@ export function act(world: World, characterId: string, move: Act): ActResult {
       return refuse(world, c, `For ${key} you gave ${shown}. Choose one of: ${choices.join(', ') || 'nothing is available'}.`, label)
     }
   }
+  return null
+}
 
-  const outcome = def.perform(world, c, params)
-  if (!outcome.ok) return refuse(world, c, outcome.reason, outcome.label ?? label)
-
-  const done = outcome.done
+function apply(world: World, c: Character, done: Done): ActResult {
   c.busyUntil = world.minutes + done.minutes
   c.doing = done.label
   c.body.mood = clamp(c.body.mood + done.moodDelta, -1, 1)
@@ -640,4 +714,48 @@ export function act(world: World, characterId: string, move: Act): ActResult {
     success: true, message: done.message, moodDelta: done.moodDelta, minutes: done.minutes, label: done.label,
     heardBy: done.heardBy ?? [], addressed: done.addressed ?? null, leaves: done.leaves ?? [], created: done.created ?? null,
   }
+}
+
+const labelOf = (spec: MoveSpec | undefined, action: string) => spec?.label ?? `trying to ${cleanText(action, 30) || 'do something'}`
+
+/** Carries out a world move, or refuses it in plain words. Never throws for anything a mind can send. */
+export function act(world: World, characterId: string, move: Act): ActResult {
+  const c = character(world, characterId)
+  const action = typeof move.action === 'string' ? move.action : ''
+  const params = move.params ?? {}
+  const def = MOVES.find((m) => m.spec.name === action)
+  const allowed = def && tierAllows(c, def) ? def : undefined
+  const label = labelOf(def?.spec, action)
+  const refused = check(world, c, allowed?.spec, allowed?.offer(world, c), params, label)
+  if (refused) return refused
+  const outcome = allowed!.perform(world, c, params)
+  if (!outcome.ok) return refuse(world, c, outcome.reason, outcome.label ?? label)
+  return apply(world, c, outcome.done)
+}
+
+/**
+ * Carries out any move, a world move or a facility move. Facility moves may take time (the café reads
+ * from the web), so this is awaited. Never throws for anything a mind can send.
+ */
+export async function actAny(world: World, characterId: string, move: Act, services: FacilityServices): Promise<ActResult> {
+  const action = typeof move.action === 'string' ? move.action : ''
+  if (MOVES.some((m) => m.spec.name === action)) return act(world, characterId, move)
+
+  const c = character(world, characterId)
+  const params = move.params ?? {}
+  const offer = facilitiesHere(world, c).offers.get(action)
+  const spec = offer?.ok ? offer.here.move.spec : FACILITIES.flatMap((f) => f.moves).find((m) => m.spec.name === action)?.spec
+  const label = labelOf(spec, action)
+  const refused = check(world, c, offer ? spec : undefined, offer?.ok ? { ok: true, params: offer.params } : offer, params, label)
+  if (refused) return refused
+  const { facility, building, move: facilityMove } = (offer as Extract<FacilityOffer, { ok: true }>).here
+  let outcome
+  try {
+    outcome = await facilityMove.perform({ world, c, building, services }, params)
+  } catch (error) {
+    console.error(`[seedlings] ${facility.kind} failed at ${action}:`, error instanceof Error ? error.message : error)
+    return quietly('Something went wrong there. It might work later.', label)
+  }
+  if (!outcome.ok) return outcome.quiet ? quietly(outcome.reason, label) : refuse(world, c, outcome.reason, label)
+  return apply(world, c, { ...outcome, leaves: outcome.leaves ?? [] })
 }

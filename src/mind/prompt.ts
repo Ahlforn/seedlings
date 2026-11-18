@@ -61,6 +61,7 @@ const list = (lines: string[]) => lines.map((line) => `- ${line}`).join('\n')
 /** The user message: what is in front of the character, and what comes to mind. Empty sections are left out. */
 export function whatISee(o: Observation, recalled: Memory[], beliefs: Belief[], loudest: MindItem[]): string {
   const sections = [`THE TIME: ${o.clock}. ${o.environment}`, `THE PLACE: ${o.room}`]
+  if (o.here.length) sections.push(`HERE:\n${list(o.here)}`)
   if (o.home) sections.push(`YOUR HOME: ${o.home}`)
   if (o.people.length) sections.push(`WHO IS AROUND:\n${list(o.people)}`)
   if (o.heard.length) sections.push(`YOU HEARD:\n${list(o.heard)}`)

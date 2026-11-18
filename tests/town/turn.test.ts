@@ -22,12 +22,12 @@ test('one thought can hold several moves; the later ones happen without thinking
   const first = await runTurn(d, PIP_ID)
   expect(first.results).toHaveLength(1); expect(character(d.world, PIP_ID).queue).toHaveLength(2)
   advance(d.world, first.results[0].minutes)
-  expect(performQueued(d, PIP_ID)!.results[0].success).toBe(true)        // speak
+  expect((await performQueued(d, PIP_ID))!.results[0].success).toBe(true)        // speak
   expect(character(d.world, PIP_ID).said).toBe('cold')
   advance(d.world, 2)
-  expect(performQueued(d, PIP_ID)!.results[0].success).toBe(false)       // fly is refused and empties the queue
+  expect((await performQueued(d, PIP_ID))!.results[0].success).toBe(false)       // fly is refused and empties the queue
   expect(character(d.world, PIP_ID).queue).toEqual([])
-  expect(performQueued(d, PIP_ID)).toBeNull()
+  expect(await performQueued(d, PIP_ID)).toBeNull()
   expect(JSON.parse(d.store.getTurn(first.turnId)!.results)).toHaveLength(3)
   expect(d.model.requests).toHaveLength(1)
 })
@@ -168,7 +168,7 @@ test('a queued move that speaks is heard too', async () => {
   const two = '{"consider":"hi","do":[{"action":"wait","params":{}},{"action":"speak","params":{"text":"Morning"}}],"because":"."}'
   const d = deps([two]); const mo = addInhabitant(d.world, 'Mo', character(d.world, PIP_ID).at)
   await runTurn(d, PIP_ID); advance(d.world, 20)
-  const out = performQueued(d, PIP_ID)!
+  const out = (await performQueued(d, PIP_ID))!
   expect(out.heardBy).toEqual([mo.id])
   expect(d.store.memories(mo.id).map((m) => m.text)).toContain('Pip said: "Morning"')
 })
@@ -199,4 +199,24 @@ test('creating someone leaves a memory in Pip and in the newcomer', async () => 
   expect(out.created).not.toBeNull()
   expect(d.store.memories(PIP_ID).map((m) => m.text)).toContain('I made Mo. They live at Burrow.')
   expect(d.store.memories(out.created!).map((m) => m.kind)).toEqual(['moment'])
+})
+
+// ---- Stage 3: facility moves in turns ----
+import { FACILITIES } from '../../src/facilities/index.ts'
+import { placeFacility } from '../../src/world/owner.ts'
+import { candidateSites } from '../../src/world/sites.ts'
+import { BENCH } from '../facilities/bench.ts'
+describe('facility moves in turns', () => {
+  beforeAll(() => { FACILITIES.push(BENCH) })
+  afterAll(() => { FACILITIES.splice(FACILITIES.indexOf(BENCH), 1) })
+  test('a queued facility move is performed and awaited', async () => {
+    const two = '{"consider":"rest","do":[{"action":"move_to","params":{"target":"Bench"}},{"action":"sit","params":{}}],"because":"."}'
+    const d = deps([two]); d.world.minutes = 10 * 60
+    placeFacility(d.world, 'bench', candidateSites(d.world)[0].name)
+    const out = await runTurn(d, PIP_ID)
+    expect(out.results[0].success).toBe(true)
+    advance(d.world, out.results[0].minutes + 1)
+    const queued = (await performQueued(d, PIP_ID))!
+    expect(queued.results[0]).toMatchObject({ success: true, message: 'You sit on the bench.' })
+  })
 })

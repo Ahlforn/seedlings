@@ -1,7 +1,11 @@
 /** What the owner can do to the world. Each states a fact in the world's events; none speaks to anyone. */
 
+import { FACILITIES, facilityOf } from '../facilities/index.ts'
+import { cleanText } from '../shared/recipe.ts'
 import type { World } from '../shared/types.ts'
-import { RAIN_WORDS, same } from './seam.ts'
+import { clockOf } from './clock.ts'
+import { RAIN_WORDS, same, uniqueBuildingName } from './seam.ts'
+import { candidateSites } from './sites.ts'
 import { addEvent } from './world.ts'
 
 export type OwnerResult = { ok: boolean; message: string }
@@ -44,4 +48,28 @@ export function breakBuilding(world: World, name: string): OwnerResult {
   if (b.workLeft > 0) return { ok: false, message: `${b.name} is not finished yet.` }
   b.repairLeft = Math.max(1, Math.ceil(b.workTotal / 3))
   return done(world, `${b.name} broke.`)
+}
+
+/** "an internet café" → "Internet café". */
+const nameFrom = (words: string) => {
+  const bare = words.replace(/^(the|an|a)\s+/i, '')
+  return bare.charAt(0).toUpperCase() + bare.slice(1)
+}
+
+/** A facility appears, finished, on a free site. Nobody the characters know built it. */
+export function placeFacility(world: World, kind: string, site: string, name = ''): OwnerResult {
+  const facility = facilityOf(FACILITIES.find((f) => same(f.kind, kind))?.kind ?? null)
+  if (!facility) return { ok: false, message: `Choose one of: ${FACILITIES.map((f) => f.kind).join(', ')}.` }
+  const sites = candidateSites(world)
+  const spot = sites.find((s) => same(s.name, site))
+  if (!spot) return { ok: false, message: `Choose a free site: ${sites.map((s) => s.name).join(', ') || 'there is no room left'}.` }
+  if (facility.look.footprint > spot.maxFootprint) return { ok: false, message: `${facility.name} does not fit ${spot.name}.` }
+  const called = uniqueBuildingName(world, cleanText(name, 30) || nameFrom(facility.name), 'other')
+  world.buildings.push({
+    id: `b${world.nextId++}`, name: called, purpose: 'other', about: facility.about, recipe: { ...facility.look },
+    at: { x: spot.at.x, y: spot.at.y }, workLeft: 0, workTotal: 1, startedDay: clockOf(world.minutes).day,
+    facility: facility.kind, builtBy: 'nobody', closed: false, repairLeft: 0,
+  })
+  const where = same(spot.name, 'the middle of the plot') ? 'in the middle of the plot' : spot.name
+  return done(world, `${called} appeared ${where}.`)
 }

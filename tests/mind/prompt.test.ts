@@ -33,3 +33,11 @@ test('who is around, what was heard and notes appear in the scene, and empty one
   const noted = whatISee({ ...o, notes: ['A note at the pond from Pip: "Hi"'] }, [], [], [])
   expect(noted).toContain('NOTES HERE:\n- A note at the pond from Pip: "Hi"')
 })
+
+test('what is here comes right after the place', () => {
+  const o = { ...observe(createWorld(1), PIP_ID), here: ['Pictures on the wall: "X" by Mo (calm)'] }
+  const text = whatISee(o, [], [], [])
+  expect(text).toContain('HERE:\n- Pictures on the wall: "X" by Mo (calm)')
+  expect(text.indexOf('THE PLACE')).toBeLessThan(text.indexOf('HERE:')); expect(text.indexOf('HERE:')).toBeLessThan(text.indexOf('YOUR BODY'))
+  expect(whatISee(observe(createWorld(1), PIP_ID), [], [], [])).not.toContain('HERE:')
+})

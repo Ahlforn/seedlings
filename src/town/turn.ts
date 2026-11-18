@@ -1,6 +1,7 @@
 /** One full turn of a mind: see, decide, act, record. And the reflection that writes the diary. */
 
 import type { BudgetKeeper } from '../budget/keeper.ts'
+import type { FacilityServices } from '../facilities/contract.ts'
 import type { Config } from '../config.ts'
 import { WAIT, readDecision } from '../mind/decision.ts'
 import type { Decision } from '../mind/decision.ts'
@@ -13,7 +14,7 @@ import type { ModelClient, ModelReply } from '../model/client.ts'
 import type { Act, World } from '../shared/types.ts'
 import type { Store } from '../store/store.ts'
 import { clockOf } from '../world/clock.ts'
-import { act, manifest, observe } from '../world/seam.ts'
+import { actAny, manifest, observe } from '../world/seam.ts'
 import type { ActResult } from '../world/seam.ts'
 import { character } from '../world/world.ts'
 
@@ -24,6 +25,8 @@ export type TownDeps = {
   budget: BudgetKeeper
   config: Config
   now: () => number
+  /** what facilities may use */
+  services: FacilityServices
 }
 export type TurnOutcome = {
   turnId: number
@@ -68,12 +71,12 @@ const finishedCount = (world: World) => world.buildings.filter((b) => b.workLeft
 type Performed = { result: ActResult; wentToSleep: boolean; finishedBuilding: boolean }
 
 /** Acts one move and applies what it teaches, to the actor and to anyone the move reached. */
-function perform(deps: TownDeps, characterId: string, move: Act): Performed {
+async function perform(deps: TownDeps, characterId: string, move: Act): Promise<Performed> {
   const { world, store } = deps
   const c = character(world, characterId)
   const wasAsleep = c.asleep
   const finishedBefore = finishedCount(world)
-  const result = act(world, characterId, move)
+  const result = await actAny(world, characterId, move, deps.services)
   const belief = beliefFor(result)
   if (belief) store.bumpBelief(characterId, belief.key, belief.text)
   for (const left of result.leaves) store.addMemory({ ...left, sinceMinutes: world.minutes })
@@ -117,7 +120,7 @@ export async function runTurn(deps: TownDeps, characterId: string): Promise<Turn
 
   store.touchMemories(recalled.map((memory) => memory.id), world.minutes)
   const [first, ...rest] = decision.moves
-  const done = perform(deps, characterId, first)
+  const done = await perform(deps, characterId, first)
   c.queue = done.result.success ? rest : []
   if (decision.remember) {
     store.addMemory({ characterId, text: decision.remember.text, kind: decision.remember.kind, sinceMinutes: world.minutes })
@@ -155,13 +158,13 @@ const outcomeOf = (turnId: number, done: Performed): TurnOutcome => ({
 })
 
 /** Acts the next move left over from the last decision, with no model call. Null when there is none. */
-export function performQueued(deps: TownDeps, characterId: string): TurnOutcome | null {
+export async function performQueued(deps: TownDeps, characterId: string): Promise<TurnOutcome | null> {
   const { world, store } = deps
   const c = character(world, characterId)
   const move = c.queue.shift()
   if (!move) return null
 
-  const done = perform(deps, characterId, move)
+  const done = await perform(deps, characterId, move)
   if (!done.result.success) c.queue = []
   const turn = store.getTurn(c.queueTurn)
   if (turn) {

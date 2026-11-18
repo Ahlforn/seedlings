@@ -200,7 +200,7 @@ export function createScheduler(deps: TownDeps): Scheduler {
 
       // Moves left over from an earlier decision need no model call.
       for (const c of [...world.characters]) {
-        if (free(c) && c.queue.length > 0) await after(c, performQueued(deps, c.id)!)
+        if (free(c) && c.queue.length > 0) await after(c, (await performQueued(deps, c.id))!)
       }
 
       const pip = world.characters.find((c) => c.tier === 'origin')

@@ -10,5 +10,6 @@ export const deps = (replies: Parameters<typeof scriptedClient>[0], clock = { t:
   const world = createWorld(1)
   const population = () => world.characters.filter((c) => c.tier === 'inhabitant').length
   const budget = createBudgetKeeper(store, { monthlyAllowance: 60, periodStartDay: 1, ...DEFAULT_PACING }, () => clock.t, population)
-  return { world, store, model, budget, config, now: () => clock.t, clock }
+  const services = { store, fetchJson: async () => ({}), now: () => clock.t }
+  return { world, store, model, budget, config, now: () => clock.t, clock, services }
 }
