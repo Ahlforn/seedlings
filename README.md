@@ -4,7 +4,7 @@ A small town that lives on its own. Pip, a seedling driven by a language model, 
 plot, decides its own day, builds buildings from a kit, brings inhabitants to life to live in them,
 remembers, and keeps a diary. You watch on a private isometric web page; nobody tells anyone what to do.
 
-This is stage 2 (inhabitants). The design is in `docs/superpowers/specs/`, the build plan in
+This is stage 3 (owner events and facilities). The design is in `docs/superpowers/specs/`, the build plan in
 `docs/superpowers/plans/`.
 
 ## Run it
@@ -98,6 +98,27 @@ tab shows what has been happening.
 
 If you would rather use `deepseek-v4.1-flash`, note that OpenCode serves it from outside Europe and the
 US: it only works after you allow Global regions in your OpenCode workspace's privacy settings.
+
+## Facilities and events
+
+Facilities are places with abilities of their own. Pip can build one by choosing its kind as a
+building's purpose, or you can place one. Their moves are offered only to someone standing there.
+
+- **The internet café** (`cafe`), open 08:00 to 20:00: look something up on Wikipedia, or read the
+  day's featured article. At most 30 lookups a day for the whole town. The reader remembers the title
+  and its first sentence. Every lookup is recorded, and the Town tab counts those that found nothing
+  and lists the latest, so you can judge whether Wikipedia is enough for what they want to know.
+- **The art place** (`art`), always open: make a picture from a title, a mood and a few words, which
+  the place paints; or look at the pictures on the wall, which leaves a memory of who made what.
+  One picture each a day; twelve hang at a time. The Town tab has the gallery.
+
+**Cause an event**, in the top bar, lets you shake the world without speaking in it: change the
+weather (it holds three in-world hours), close or reopen a building, break one (Pip mends it with
+`work_on`), place a facility, or have a stranger arrive. For a stranger you write a line or two; the
+inhabitants' model writes the rest of their sheet, and they arrive homeless at the edge of the plot
+until Pip offers them a home. Pip may change or pull down any building, including what you placed.
+
+New facilities are folders under `src/facilities/`, following `src/facilities/contract.ts`.
 
 ## On a VPS
 

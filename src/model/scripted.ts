@@ -60,7 +60,14 @@ function movesOnOffer(system: string): Offered {
 export function wanderingClient(): ModelClient {
   const walls = ['cream', 'blue', 'sand', 'white', 'yellow', 'brick']
   const roofs = ['pitched', 'pyramid', 'flat', 'dome']
-  const purposes = ['home', 'food', 'other']
+  // Somewhere to live and eat first, then the facilities, then anything.
+  const purposes = ['home', 'food', 'art', 'cafe', 'other']
+  const strangers = ['Bram', 'Wren', 'Hollis', 'Tamsin']
+  const titles = ['First Light', 'The Pond at Noon', 'Rain Again', 'Home', 'Someone Waving']
+  const descriptions = ['a sun over the pond', 'a tree and a bird', 'rain on the road', 'a house with a heart on the door', '']
+  const topics = ['moths', 'bread', 'lighthouses', 'nothing in particular', 'the sea']
+  let arrived = 0
+  let painted = 0
   const names = ['Mo', 'Fen', 'Dot', 'Ash', 'Bree', 'Kit', 'Lu', 'Nim', 'Oz', 'Pell', 'Rue', 'Tam']
   let turn = 0
   let built = 0
@@ -77,6 +84,24 @@ export function wanderingClient(): ModelClient {
     if (bed && (night || /rest (strong|urgent)/.test(body))) return { consider: 'I can hardly keep my leaves up.', move: { action: 'sleep', params: { target: bed } } }
     const food = first('eat', 'target')
     if (food && /hunger/.test(body)) return { consider: 'Something to eat first.', move: { action: 'eat', params: { target: food } } }
+    const homeless = first('offer_home', 'who')
+    const room = first('offer_home', 'home')
+    if (homeless && room) return { consider: 'They need somewhere to sleep.', move: { action: 'offer_home', params: { who: homeless, home: room } } }
+    const moods = offered.get('make_a_picture')?.get('mood') ?? []
+    if (moods.length && turn % 4 === 0) {
+      painted += 1
+      return {
+        consider: 'I want to make something.',
+        move: { action: 'make_a_picture', params: { title: titles[painted % titles.length], mood: moods[painted % moods.length], description: descriptions[painted % descriptions.length] } },
+      }
+    }
+    const hanging = first('look_at_picture', 'picture')
+    if (hanging && turn % 5 === 0) return { consider: 'What is on the wall?', move: { action: 'look_at_picture', params: { picture: hanging } } }
+    if (offered.has('look_up') && turn % 3 === 0) return { consider: 'I wonder about something.', move: { action: 'look_up', params: { topic: topics[turn % topics.length] } } }
+    if (offered.has('read_the_paper') && turn % 7 === 0) return { consider: 'What is in the paper?', move: { action: 'read_the_paper', params: {} } }
+    // Any named place but wandering: over time everyone finds the facilities, whatever they are called.
+    const places = (offered.get('move_to')?.get('target') ?? []).filter((t) => t !== 'wander' && !/^(the|a) /.test(t))
+    if (places.length && turn % 6 === 0) return { consider: 'Let me go and see.', move: { action: 'move_to', params: { target: places[turn % places.length] } } }
     const home = first('create_inhabitant', 'home')
     if (home && turn % 4 === 0 && made < names.length) {
       const pick = (setting: string) => {
@@ -127,6 +152,13 @@ export function wanderingClient(): ModelClient {
   return {
     async complete(req) {
       const usage = { allowance: 0, inputTokens: 0, outputTokens: 0, billingSource: 'fake' }
+      if (req.system.includes('character sheet')) {
+        const name = strangers[arrived++ % strangers.length]
+        return {
+          text: JSON.stringify({ name, kind: 'a traveller', who: `${name} has walked a long way and is glad to stop.`, traits: 'tired, kind', cares_about: 'a warm place', fears: 'being turned away', colour: 'brown', mark: 'scarf' }),
+          usage,
+        }
+      }
       if (req.system.includes('You keep a diary')) {
         return { text: JSON.stringify({ diary: 'Another stretch of the day. I got some things done and I am pleased with them.', memories: [], mind: [], done: [] }), usage }
       }

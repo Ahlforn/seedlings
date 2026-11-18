@@ -28,3 +28,13 @@ test('the user agent carries a contact only when one is set', () => {
   expect(wikipediaUserAgent('')).toBe('seedlings-town/0.1')
   expect(wikipediaUserAgent('me@x.org')).toBe('seedlings-town/0.1 (me@x.org)')
 })
+
+// Found live: Wikipedia's search nearly always returns something, however unrelated.
+test('a search hit that shares no word with the topic counts as nothing found', async () => {
+  const loose = stub({ 'search/page': { pages: [{ key: 'Super_Wings' }] }, 'page/summary/Super_Wings': { title: 'List of Super Wings episodes', extract: 'Super Wings is an animated television series.' } })
+  expect(await lookUp(loose, 'glowing snail kings of the hollow tree')).toBeNull()
+  const close = stub({ 'search/page': { pages: [{ key: 'Assize' }] }, 'page/summary/Assize': { title: 'Assize of Bread and Ale', extract: 'A 13th-century law about bread and ale.' } })
+  expect((await lookUp(close, 'bread baking in the countryside'))!.title).toBe('Assize of Bread and Ale')
+  const plural = stub({ 'search/page': { pages: [{ key: 'Moth' }] }, 'page/summary/Moth': { title: 'Moth', extract: 'Moths are insects.' } })
+  expect((await lookUp(plural, 'moths'))!.title).toBe('Moth')
+})

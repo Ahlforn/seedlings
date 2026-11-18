@@ -25,6 +25,20 @@ export function trim(words: string, max = TEXT_MAX): string {
   return end > 0 ? head.slice(0, end + 1) : head.trimEnd()
 }
 
+/** Words of four letters or more, without a plural s: "moths" and "Moth" are the same word here. */
+const wordsOf = (text: string) => new Set((text.toLowerCase().match(/[a-z]{4,}/g) ?? []).map((w) => w.replace(/s$/, '')))
+
+/**
+ * Wikipedia's search nearly always returns something, however unrelated. A result counts only when it
+ * shares a word with what was asked, so a loose match is recorded as nothing found.
+ */
+function related(topic: string, read: Read): boolean {
+  const asked = wordsOf(topic)
+  if (asked.size === 0) return true
+  const found = wordsOf(`${read.title} ${read.text}`)
+  return [...asked].some((word) => found.has(word))
+}
+
 export function wikipediaUserAgent(contact: string): string {
   return contact ? `${USER_AGENT} (${contact})` : USER_AGENT
 }
@@ -38,7 +52,9 @@ export async function lookUp(fetchJson: FacilityServices['fetchJson'], topic: st
   const summary = record(await fetchJson(`${WIKI}/api/rest_v1/page/summary/${encodeURIComponent(key)}`))
   const title = text(summary?.title)
   const extract = trim(text(summary?.extract))
-  return title && extract ? { title: cleanText(title, 100), text: extract } : null
+  if (!title || !extract) return null
+  const read = { title: cleanText(title, 100), text: extract }
+  return related(topic, read) ? read : null
 }
 
 /** The day's featured article. Wikipedia's days are real days, in UTC. */

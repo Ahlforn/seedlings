@@ -39,13 +39,39 @@ test('a fake town grows a population that talks and leaves notes, and every move
   const d = deps([]); const model = wanderingClient()
   const population = () => d.world.characters.filter((c) => c.tier === 'inhabitant').length
   const budget = createBudgetKeeper(d.store, { monthlyAllowance: 60, periodStartDay: 1, ...DEFAULT_PACING, minIntervalMs: 1000, maxIntervalMs: 1000 }, d.now, population)
-  const s = createScheduler({ ...d, model, budget, config: { ...d.config, daysPerRealDay: 480 } })
+  // A fake run reads from the stand-in Wikipedia, as startTown gives it.
+  const s = createScheduler({ ...d, model, budget, config: { ...d.config, daysPerRealDay: 480 }, services: { ...d.services, fetchJson: fakeWikipedia() } })
   for (let i = 0; i < 1500 && population() < 2; i++) { d.clock.t += 1000; await s.step(5000) }
   for (let i = 0; i < 300; i++) { d.clock.t += 1000; await s.step(5000) }
   expect(population()).toBeGreaterThanOrEqual(2)
   const turns = d.world.characters.flatMap((c) => d.store.turnsBetween(c.id, 1, d.store.lastTurnId(c.id)))
   const results = turns.flatMap((t) => JSON.parse(t.results) as { success: boolean; message: string }[])
-  expect(results.filter((r) => !r.success).map((r) => r.message)).toEqual([])
+  // A café lookup that finds nothing is the one refusal a fake town is meant to show.
+  expect(results.filter((r) => !r.success && !/find nothing about it/.test(r.message)).map((r) => r.message)).toEqual([])
   expect(turns.some((t) => t.decision.includes('"speak"') && !t.decision.includes('"to":"anyone"'))).toBe(true)
   expect(turns.some((t) => t.decision.includes('"leave_note"'))).toBe(true)
 }, 30_000)
+
+// ---- Stage 3 ----
+import { fakeWikipedia } from '../../src/facilities/cafe/fake.ts'
+test('a fake town builds facilities, paints, reads and misses', async () => {
+  const d = deps([]); const model = wanderingClient()
+  const population = () => d.world.characters.filter((c) => c.tier === 'inhabitant').length
+  const budget = createBudgetKeeper(d.store, { monthlyAllowance: 60, periodStartDay: 1, ...DEFAULT_PACING, minIntervalMs: 1000, maxIntervalMs: 1000 }, d.now, population)
+  const services = { store: d.store, fetchJson: fakeWikipedia(), now: d.now }
+  const s = createScheduler({ ...d, model, budget, services, config: { ...d.config, daysPerRealDay: 480 } })
+  const done = () => d.store.gallery(1).length > 0 && d.store.lookupStats().missing > 0 && d.store.lookupStats().total > d.store.lookupStats().missing
+  for (let i = 0; i < 6000 && !done(); i++) { d.clock.t += 1000; await s.step(5000) }
+  expect(d.world.buildings.some((b) => b.facility === 'art')).toBe(true)
+  expect(d.world.buildings.some((b) => b.facility === 'cafe')).toBe(true)
+  expect(d.store.gallery(5).length).toBeGreaterThan(0)
+  expect(d.store.lookupStats().missing).toBeGreaterThan(0)
+  expect(d.store.lookupStats().total).toBeGreaterThan(d.store.lookupStats().missing)
+  const turns = d.world.characters.flatMap((c) => d.store.turnsBetween(c.id, 1, d.store.lastTurnId(c.id)))
+  const results = turns.flatMap((t) => JSON.parse(t.results) as { success: boolean; message: string }[])
+  expect(results.filter((r) => !r.success && !/find nothing about it/.test(r.message)).map((r) => r.message)).toEqual([])
+}, 120_000)
+test('the stand-in writes a stranger\'s sheet when asked for one', async () => {
+  const reply = await wanderingClient().complete({ model: 'fake', system: 'You write a character sheet for someone who has just arrived.', user: 'Who arrives: a baker', sessionId: 'stranger', maxTokens: 400 })
+  expect(JSON.parse(reply.text)).toMatchObject({ name: 'Bram', colour: expect.any(String), mark: expect.any(String) })
+})

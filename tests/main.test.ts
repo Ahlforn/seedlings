@@ -56,3 +56,24 @@ test('a town restarted on its database keeps its inhabitants', async () => {
   expect(state.characters.map((c: any) => c.name)).toEqual(['Pip', 'Mo'])
   expect(state.population.count).toBe(1)
 }, 15_000)
+
+// ---- Stage 3 ----
+test('a fake town answers an owner event end to end', async () => {
+  const town = await startTown({ ...loadConfig({ SEEDLINGS_PASSWORD: 'secret', SEEDLINGS_FAKE_MODEL: '1' }), port: 0, dbPath: ':memory:', tickMs: 20 })
+  const base = `http://localhost:${town.port}`
+  const login = await fetch(`${base}/login`, { method: 'POST', redirect: 'manual', headers: { 'content-type': 'application/x-www-form-urlencoded' }, body: 'password=secret' })
+  const cookie = login.headers.get('set-cookie')!.split(';')[0]
+  const { request } = await import('node:http')
+  const body = JSON.stringify({ kind: 'weather', weather: 'a storm' })
+  const answer = await new Promise<{ status: number; text: string }>((resolve, reject) => {
+    const req = request({ host: 'localhost', port: town.port, path: '/api/event', method: 'POST',
+      headers: { cookie, origin: base, 'content-type': 'application/json', 'content-length': Buffer.byteLength(body) } }, (res) => {
+      let text = ''; res.on('data', (c) => { text += c }); res.on('end', () => resolve({ status: res.statusCode ?? 0, text }))
+    })
+    req.on('error', reject); req.end(body)
+  })
+  expect(answer.status).toBe(200); expect(JSON.parse(answer.text)).toEqual({ ok: true, message: 'The weather turned to a storm.' })
+  const state = await (await fetch(`${base}/api/state`, { headers: { cookie } })).json() as any
+  expect(state.weather).toBe('a storm')
+  await town.stop()
+})
