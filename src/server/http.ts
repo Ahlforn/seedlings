@@ -19,6 +19,7 @@ const SAID_FOR_MINUTES = 30
 const DIARY_PAGE = 20
 const ON_MIND = 3
 const EVENTS_SHOWN = 20
+const GALLERY_SHOWN = 12
 const MAX_LOGIN_BODY = 10_000
 const WRONG_PASSWORD_DELAY_MS = 300
 
@@ -82,6 +83,9 @@ export function stateView(world: World, store: Store, budget: BudgetKeeper, thou
     })),
     events: world.events.slice(-EVENTS_SHOWN).reverse().map((e) => ({ clock: clockOf(e.minute).label, text: e.text })),
     population: { count: world.characters.filter((c) => c.tier === 'inhabitant').length, limit: world.populationLimit },
+    gallery: store.gallery(GALLERY_SHOWN).map((p) => ({
+      id: p.id, title: p.title, byName: p.byName, mood: p.mood, description: p.description, clock: clockOf(p.minute).label, shapes: p.shapes,
+    })),
     budget: {
       leftToday: status.leftTodayFraction,
       canThink: status.canThink,

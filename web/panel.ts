@@ -1,6 +1,7 @@
 /** The side panel and top bar. Everything a model wrote is set with textContent, never as markup. */
 
 import type { DiaryView, StateView, TraceView } from '../src/shared/types.ts'
+import { drawPicture } from './draw.ts'
 
 type Person = StateView['characters'][number]
 
@@ -95,6 +96,7 @@ export function showState(state: StateView): void {
   if (who === null) {
     const { count, limit } = state.population
     byId('population').textContent = `${count} ${count === 1 ? 'inhabitant' : 'inhabitants'}, of ${limit} the town can support right now.`
+    showGallery(state)
     byId('events').replaceChildren(...state.events.map((e) => {
       const item = el('li')
       item.append(el('time', e.clock), el('span', e.text))
@@ -111,6 +113,36 @@ export function showState(state: StateView): void {
   byId('home').hidden = who.tier === 'origin'
   byId('home').textContent = who.home || 'No home.'
   byId('hint').textContent = `Open an entry to see what ${who.name} saw and thought.`
+}
+
+const PICTURE_PX = 96
+let galleryKey = ''
+
+/** Pictures in the gallery, redrawn only when the set of pictures changes. */
+function showGallery(state: StateView): void {
+  const key = state.gallery.map((p) => p.id).join(',')
+  if (key === galleryKey) return
+  galleryKey = key
+  if (state.gallery.length === 0) {
+    byId('gallery').replaceChildren(el('li', 'Nobody has made a picture yet.', 'quiet'))
+    return
+  }
+  byId('gallery').replaceChildren(...state.gallery.map((p) => {
+    const item = el('li')
+    const canvas = el('canvas')
+    const ratio = window.devicePixelRatio || 1
+    canvas.width = PICTURE_PX * ratio
+    canvas.height = PICTURE_PX * ratio
+    canvas.style.width = canvas.style.height = `${PICTURE_PX}px`
+    const ctx = canvas.getContext('2d')
+    if (ctx) { ctx.scale(ratio, ratio); drawPicture(ctx, p.shapes, PICTURE_PX) }
+    const words = el('div')
+    words.append(el('strong', p.title), el('span', `${p.byName}, ${p.mood}`, 'quiet'))
+    if (p.description) words.append(el('span', p.description))
+    words.append(el('time', p.clock))
+    item.append(canvas, words)
+    return item
+  }))
 }
 
 function traceNode(trace: TraceView): HTMLElement {

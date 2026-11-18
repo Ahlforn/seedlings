@@ -144,6 +144,8 @@ export type StateView = {
   }[]
   /** newest first */
   events: { clock: string; text: string }[]
+  /** the newest pictures, hanging or taken down, newest first */
+  gallery: { id: string; title: string; byName: string; mood: Mood; description: string; clock: string; shapes: Shape[] }[]
   population: { count: number; limit: number }
   /** trouble is why thinking or saving is failing right now, or empty */
   budget: { leftToday: number; canThink: boolean; reason: string; trouble: string }

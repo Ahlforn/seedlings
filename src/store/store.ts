@@ -3,7 +3,7 @@
 import { mkdirSync } from 'node:fs'
 import { dirname } from 'node:path'
 import Database from 'better-sqlite3'
-import type { MemoryKind, World } from '../shared/types.ts'
+import type { MemoryKind, Picture, World } from '../shared/types.ts'
 
 export type { MemoryKind } from '../shared/types.ts'
 export type MindKind = 'want' | 'worry' | 'question' | 'promise'
@@ -82,6 +82,10 @@ export type Store = {
   /** 0 when there is no history */
   averageSpend(lastN: number, pool?: SpendPool): number
   spendCount(pool?: SpendPool): number
+  /** every picture ever made, hanging or taken down */
+  addPicture(p: Picture): void
+  /** newest first */
+  gallery(limit: number): Picture[]
   getFlag(key: string): string | null
   setFlag(key: string, value: string | null): void
   close(): void
@@ -124,6 +128,10 @@ create table if not exists ledger (
 );
 create index if not exists ledger_by_ts on ledger (ts);
 create table if not exists flags (key text primary key, value text not null);
+create table if not exists pictures (
+  id text primary key, placeId text not null, byId text not null, byName text not null, title text not null,
+  mood text not null, description text not null, minute real not null, shapes text not null
+);
 `
 
 const TURN_COLUMNS =
@@ -169,6 +177,8 @@ export function openStore(path: string): Store {
     if (!statement) statements.set(sql, (statement = db.prepare(sql)))
     return statement
   }
+  const addPicture = db.prepare('insert into pictures (id, placeId, byId, byName, title, mood, description, minute, shapes) values (?, ?, ?, ?, ?, ?, ?, ?, ?)')
+  const gallery = db.prepare('select * from pictures order by rowid desc limit ?')
   const getFlag = db.prepare('select value from flags where key = ?')
   const setFlag = db.prepare('insert into flags (key, value) values (?, ?) on conflict (key) do update set value = excluded.value')
   const clearFlag = db.prepare('delete from flags where key = ?')
@@ -210,6 +220,9 @@ export function openStore(path: string): Store {
       const { where, args } = whose(pool)
       return (ask(`select count(*) as n from ledger where ${where}`).get(...args) as { n: number }).n
     },
+    addPicture: (p) => { addPicture.run(p.id, p.placeId, p.by, p.byName, p.title, p.mood, p.description, p.minute, JSON.stringify(p.shapes)) },
+    gallery: (limit) => (gallery.all(limit) as { id: string; placeId: string; byId: string; byName: string; title: string; mood: Picture['mood']; description: string; minute: number; shapes: string }[])
+      .map((row) => ({ id: row.id, placeId: row.placeId, by: row.byId, byName: row.byName, title: row.title, mood: row.mood, description: row.description, minute: row.minute, shapes: JSON.parse(row.shapes) as Picture['shapes'] })),
     getFlag: (key) => (getFlag.get(key) as { value: string } | undefined)?.value ?? null,
     setFlag: (key, value) => { if (value === null) clearFlag.run(key); else setFlag.run(key, value) },
     close: () => { db.close() },

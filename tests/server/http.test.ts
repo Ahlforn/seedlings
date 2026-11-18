@@ -148,3 +148,14 @@ test('an inhabitant diary and its trace are served by character', async () => {
   const trace = await getJson(`/api/trace?diary=${id}`)
   expect(trace.name).toBe('Mo'); expect(trace.turns).toHaveLength(1)
 })
+
+// ---- Stage 3: the gallery ----
+test('the gallery is in the state, newest first', async () => {
+  const picture = (id: string, title: string, minute: number) => ({ id, placeId: 'b1', by: 'c4', byName: 'Mo', title, mood: 'calm' as const, description: 'd', minute,
+    shapes: [{ kind: 'circle', x: 50, y: 50, size: 10, colour: '#ffffff', turn: 0 }] })
+  store.addPicture(picture('p1', 'Older', 400)); store.addPicture(picture('p2', 'Newer', 500))
+  const s = await getJson('/api/state')
+  expect(s.gallery.map((g: { title: string }) => g.title)).toEqual(['Newer', 'Older'])
+  expect(s.gallery[0]).toMatchObject({ byName: 'Mo', mood: 'calm', description: 'd', clock: '08:20, day 1' })
+  expect(s.gallery[0].shapes).toHaveLength(1)
+})

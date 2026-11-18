@@ -2,7 +2,7 @@
 
 import { PALETTE, TILE_H, TILE_W, buildingFaces, drawOrder, tileToScreen } from '../src/shared/iso.ts'
 import type { Face, Point } from '../src/shared/iso.ts'
-import type { Building, Feature, Look, Note, StateView, Tile } from '../src/shared/types.ts'
+import type { Building, Feature, Look, Note, Shape, StateView, Tile } from '../src/shared/types.ts'
 
 type Person = StateView['characters'][number]
 type Drawable = { at: Tile; draw(): void }
@@ -340,4 +340,59 @@ export function drawTown(ctx: CanvasRenderingContext2D, state: StateView, width:
     ctx.fillStyle = 'rgba(18,26,58,0.42)'
     ctx.fillRect(0, 0, width, height)
   }
+}
+
+/** Draws a picture's shapes on a square canvas of the given size. Shapes are laid out on a 100 × 100 grid. */
+export function drawPicture(ctx: CanvasRenderingContext2D, shapes: Shape[], size: number): void {
+  const k = size / 100
+  ctx.save()
+  ctx.clearRect(0, 0, size, size)
+  ctx.lineCap = 'round'
+  ctx.lineJoin = 'round'
+  for (const s of shapes) {
+    const x = s.x * k
+    const y = s.y * k
+    const r = (s.size * k) / 2
+    ctx.fillStyle = s.colour
+    ctx.strokeStyle = s.colour
+    ctx.lineWidth = Math.max(1, r / 3)
+    ctx.save()
+    ctx.translate(x, y)
+    ctx.rotate((s.turn * Math.PI) / 180)
+    ctx.beginPath()
+    switch (s.kind) {
+      case 'wash': ctx.fillRect(-size / 2, -size / 2, size, size); break
+      case 'circle': case 'sun': case 'moon': case 'pond': case 'water': case 'flower':
+        ctx.ellipse(0, 0, r, s.kind === 'pond' || s.kind === 'water' ? r / 2 : r, 0, 0, Math.PI * 2); ctx.fill()
+        if (s.kind === 'moon') { ctx.globalCompositeOperation = 'destination-out'; ctx.beginPath(); ctx.arc(r / 2, -r / 3, r, 0, Math.PI * 2); ctx.fill(); ctx.globalCompositeOperation = 'source-over' }
+        if (s.kind === 'flower') { ctx.fillStyle = '#fff3c4'; ctx.beginPath(); ctx.arc(0, 0, r / 3, 0, Math.PI * 2); ctx.fill() }
+        if (s.kind === 'sun') for (let i = 0; i < 8; i++) { const a = (i * Math.PI) / 4; ctx.beginPath(); ctx.moveTo(Math.cos(a) * r * 1.2, Math.sin(a) * r * 1.2); ctx.lineTo(Math.cos(a) * r * 1.6, Math.sin(a) * r * 1.6); ctx.stroke() }
+        break
+      case 'dot': ctx.arc(0, 0, Math.max(1.5, r / 2), 0, Math.PI * 2); ctx.fill(); break
+      case 'square': case 'house':
+        ctx.fillRect(-r, -r, 2 * r, 2 * r)
+        if (s.kind === 'house') { ctx.beginPath(); ctx.moveTo(-r * 1.2, -r); ctx.lineTo(0, -r * 2); ctx.lineTo(r * 1.2, -r); ctx.fill() }
+        break
+      case 'triangle': case 'hill': case 'tree':
+        ctx.moveTo(-r, r); ctx.lineTo(0, -r); ctx.lineTo(r, r); ctx.closePath(); ctx.fill()
+        if (s.kind === 'tree') { ctx.fillRect(-r / 6, r, r / 3, r / 2) }
+        break
+      case 'line': case 'road': ctx.moveTo(-r * 1.5, 0); ctx.lineTo(r * 1.5, 0); ctx.stroke(); break
+      case 'wave': case 'rain':
+        for (let i = 0; i < (s.kind === 'rain' ? 5 : 1); i++) {
+          if (s.kind === 'rain') { ctx.moveTo(-r + i * r / 2, -r); ctx.lineTo(-r + i * r / 2 - r / 4, r) }
+          else { ctx.moveTo(-r * 1.5, 0); ctx.bezierCurveTo(-r / 2, -r, r / 2, r, r * 1.5, 0) }
+        }
+        ctx.stroke(); break
+      case 'star': for (let i = 0; i < 5; i++) { const a = (i * 4 * Math.PI) / 5 - Math.PI / 2; ctx.lineTo(Math.cos(a) * r, Math.sin(a) * r) } ctx.closePath(); ctx.fill(); break
+      case 'cloud': for (const [dx, dy] of [[-r / 2, 0], [0, -r / 3], [r / 2, 0]]) { ctx.moveTo(dx + r / 2, dy); ctx.arc(dx, dy, r / 2, 0, Math.PI * 2) } ctx.fill(); break
+      case 'bird': ctx.moveTo(-r, 0); ctx.quadraticCurveTo(-r / 2, -r / 2, 0, 0); ctx.quadraticCurveTo(r / 2, -r / 2, r, 0); ctx.stroke(); break
+      case 'heart': ctx.moveTo(0, r * 0.8); ctx.bezierCurveTo(-r * 1.4, -r * 0.2, -r * 0.5, -r * 1.2, 0, -r * 0.4); ctx.bezierCurveTo(r * 0.5, -r * 1.2, r * 1.4, -r * 0.2, 0, r * 0.8); ctx.fill(); break
+      case 'fish': ctx.ellipse(0, 0, r, r / 2, 0, 0, Math.PI * 2); ctx.moveTo(r, 0); ctx.lineTo(r * 1.5, -r / 2); ctx.lineTo(r * 1.5, r / 2); ctx.fill(); break
+      case 'boat': ctx.moveTo(-r, 0); ctx.lineTo(r, 0); ctx.lineTo(r / 2, r / 2); ctx.lineTo(-r / 2, r / 2); ctx.closePath(); ctx.fill(); ctx.fillRect(-r / 12, -r, r / 6, r); break
+      default: ctx.arc(0, 0, r, 0, Math.PI * 2); ctx.fill()
+    }
+    ctx.restore()
+  }
+  ctx.restore()
 }
