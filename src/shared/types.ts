@@ -147,7 +147,12 @@ export type StateView = {
   /** what the event form offers: free sites, building names, facility kinds, the weathers */
   owner: { sites: string[]; buildings: string[]; facilities: { kind: string; name: string }[]; weathers: string[] }
   /** the café's lookups: today's count, totals, and the latest that found nothing */
-  cafe: { today: number; total: number; missing: number; failed: number; recentMisses: { who: string; words: string; clock: string }[] }
+  cafe: {
+    today: number; total: number; missing: number; failed: number
+    recentMisses: { who: string; words: string; clock: string }[]
+    /** what was asked and what was read, so a false match can be seen */
+    recentFinds: { who: string; words: string; title: string; clock: string }[]
+  }
   /** the newest pictures, hanging or taken down, newest first */
   gallery: { id: string; title: string; byName: string; mood: Mood; description: string; clock: string; shapes: Shape[] }[]
   population: { count: number; limit: number }

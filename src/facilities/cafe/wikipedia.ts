@@ -25,18 +25,29 @@ export function trim(words: string, max = TEXT_MAX): string {
   return end > 0 ? head.slice(0, end + 1) : head.trimEnd()
 }
 
-/** Words of four letters or more, without a plural s: "moths" and "Moth" are the same word here. */
-const wordsOf = (text: string) => new Set((text.toLowerCase().match(/[a-z]{4,}/g) ?? []).map((w) => w.replace(/s$/, '')))
+/** Words that say nothing about what is being asked for. */
+const FILLER = new Set(('about after again all also and any are can does for from had has have her his history how into its kind ' +
+  'list life lot make many more most much not our out people some such than that the their them then there these they thing ' +
+  'this type use very was what when where which while who why with world would you your').split(' '))
+
+/** Content words of three letters or more, accents folded, plural s dropped: "Pokémon" and "pokemons" match. */
+function wordsOf(text: string): Set<string> {
+  const folded = text.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase()
+  const words = (folded.match(/[a-z]{3,}/g) ?? []).map((w) => (w.length > 3 ? w.replace(/s$/, '') : w))
+  return new Set(words.filter((w) => !FILLER.has(w)))
+}
 
 /**
- * Wikipedia's search nearly always returns something, however unrelated. A result counts only when it
- * shares a word with what was asked, so a loose match is recorded as nothing found.
+ * Wikipedia's search nearly always returns something, however unrelated. A result counts only when its
+ * title carries a word of the topic and at least half the topic's words appear in the title or summary,
+ * so a loose match is recorded as nothing found. Finds are shown to the owner, so a false one can be seen.
  */
 function related(topic: string, read: Read): boolean {
-  const asked = wordsOf(topic)
-  if (asked.size === 0) return true
-  const found = wordsOf(`${read.title} ${read.text}`)
-  return [...asked].some((word) => found.has(word))
+  const asked = [...wordsOf(topic)]
+  if (asked.length === 0) return false
+  const title = wordsOf(read.title)
+  const anywhere = wordsOf(`${read.title} ${read.text}`)
+  return asked.some((word) => title.has(word)) && asked.filter((word) => anywhere.has(word)).length >= Math.ceil(asked.length / 2)
 }
 
 export function wikipediaUserAgent(contact: string): string {

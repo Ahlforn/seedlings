@@ -61,6 +61,8 @@ button{background:#6fbf5a;border-color:#6fbf5a;color:#16212b;cursor:pointer}</st
 
 const TROUBLE_MAX = 160
 
+const nameOf = (world: World, id: string) => world.characters.find((c) => c.id === id)?.name ?? 'someone who has gone'
+
 export function stateView(world: World, store: Store, budget: BudgetKeeper, thoughtOf: (id: string) => string, trouble = ''): StateView {
   const clock = clockOf(world.minutes)
   const status = budget.status('town')
@@ -92,11 +94,8 @@ export function stateView(world: World, store: Store, budget: BudgetKeeper, thou
     cafe: {
       today: usesToday(world, 'cafe'),
       ...store.lookupStats(),
-      recentMisses: store.recentMisses(MISSES_SHOWN).map((l) => ({
-        who: world.characters.find((c) => c.id === l.characterId)?.name ?? 'someone who has gone',
-        words: l.words,
-        clock: clockOf(l.worldMinutes).label,
-      })),
+      recentMisses: store.recentMisses(MISSES_SHOWN).map((l) => ({ who: nameOf(world, l.characterId), words: l.words, clock: clockOf(l.worldMinutes).label })),
+      recentFinds: store.recentFinds(MISSES_SHOWN).map((l) => ({ who: nameOf(world, l.characterId), words: l.words, title: l.title, clock: clockOf(l.worldMinutes).label })),
     },
     owner: {
       sites: candidateSites(world).map((s) => s.name),

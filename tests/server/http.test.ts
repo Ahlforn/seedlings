@@ -170,6 +170,8 @@ test('café counts and recent misses are in the state', async () => {
   const s = await getJson('/api/state')
   expect(s.cafe).toMatchObject({ today: 0, total: 3, missing: 1, failed: 1 })
   expect(s.cafe.recentMisses).toEqual([{ who: 'Mo', words: 'x', clock: '06:40, day 1' }])
+  // Final review #2: what was found is shown too, so a false match can be seen
+  expect(s.cafe.recentFinds).toEqual([{ who: 'Mo', words: 'moths', title: '', clock: '06:40, day 1' }])
 })
 
 // ---- Stage 3: owner events ----

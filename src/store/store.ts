@@ -100,6 +100,8 @@ export type Store = {
   lookupStats(): { total: number; missing: number; failed: number }
   /** lookups that found nothing, newest first */
   recentMisses(limit: number): Lookup[]
+  /** topic lookups that found something, newest first */
+  recentFinds(limit: number): Lookup[]
   addOwnerEvent(e: OwnerEvent): void
   /** newest first */
   ownerEvents(limit: number): OwnerEvent[]
@@ -210,6 +212,7 @@ export function openStore(path: string): Store {
   const recentMisses = db.prepare("select characterId, realTs, worldMinutes, kind, words, outcome, title from lookups where outcome = 'missing' order by id desc limit ?")
   const addOwnerEvent = db.prepare('insert into owner_events (kind, settings, realTs, ok, message) values (?, ?, ?, ?, ?)')
   const ownerEvents = db.prepare('select kind, settings, realTs, ok, message from owner_events order by id desc limit ?')
+  const recentFinds = db.prepare("select characterId, realTs, worldMinutes, kind, words, outcome, title from lookups where outcome = 'found' and kind = 'topic' order by id desc limit ?")
   const addPicture = db.prepare('insert into pictures (id, placeId, byId, byName, title, mood, description, minute, shapes) values (?, ?, ?, ?, ?, ?, ?, ?, ?)')
   const gallery = db.prepare('select * from pictures order by rowid desc limit ?')
   const getFlag = db.prepare('select value from flags where key = ?')
@@ -256,6 +259,7 @@ export function openStore(path: string): Store {
     addLookup: (l) => { addLookup.run(l) },
     lookupStats: () => lookupStats.get() as { total: number; missing: number; failed: number },
     recentMisses: (limit) => recentMisses.all(limit) as Lookup[],
+    recentFinds: (limit) => recentFinds.all(limit) as Lookup[],
     addOwnerEvent: (e) => { addOwnerEvent.run(e.kind, e.settings, e.realTs, e.ok ? 1 : 0, e.message) },
     ownerEvents: (limit) => (ownerEvents.all(limit) as (Omit<OwnerEvent, 'ok'> & { ok: number })[]).map((e) => ({ ...e, ok: e.ok === 1 })),
     addPicture: (p) => { addPicture.run(p.id, p.placeId, p.by, p.byName, p.title, p.mood, p.description, p.minute, JSON.stringify(p.shapes)) },

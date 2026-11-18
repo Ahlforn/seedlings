@@ -33,8 +33,27 @@ test('the user agent carries a contact only when one is set', () => {
 test('a search hit that shares no word with the topic counts as nothing found', async () => {
   const loose = stub({ 'search/page': { pages: [{ key: 'Super_Wings' }] }, 'page/summary/Super_Wings': { title: 'List of Super Wings episodes', extract: 'Super Wings is an animated television series.' } })
   expect(await lookUp(loose, 'glowing snail kings of the hollow tree')).toBeNull()
-  const close = stub({ 'search/page': { pages: [{ key: 'Assize' }] }, 'page/summary/Assize': { title: 'Assize of Bread and Ale', extract: 'A 13th-century law about bread and ale.' } })
+  const close = stub({ 'search/page': { pages: [{ key: 'Assize' }] }, 'page/summary/Assize': { title: 'Assize of Bread and Ale', extract: 'A 13th-century law about bread baking and ale in the English countryside.' } })
   expect((await lookUp(close, 'bread baking in the countryside'))!.title).toBe('Assize of Bread and Ale')
   const plural = stub({ 'search/page': { pages: [{ key: 'Moth' }] }, 'page/summary/Moth': { title: 'Moth', extract: 'Moths are insects.' } })
   expect((await lookUp(plural, 'moths'))!.title).toBe('Moth')
+})
+
+// Final review #2: filler words, short words, accents
+const hit = (title: string, extract: string) => stub({ 'search/page': { pages: [{ key: 'K' }] }, 'page/summary/K': { title, extract } })
+test('filler words do not make an unrelated result count as found', async () => {
+  expect(await lookUp(hit('History of Portugal', 'The history of Portugal can be traced from circa 400,000 years ago.'), 'history of glowing snail kings')).toBeNull()
+})
+test('short topics must match the title', async () => {
+  expect(await lookUp(hit('Barn owl', 'The barn owl is the most widely distributed species of owl.'), 'tea')).toBeNull()
+  expect((await lookUp(hit('Owl', 'Owls are birds from the order Strigiformes.'), 'owl'))!.title).toBe('Owl')
+})
+test('a word in the summary alone is not enough; one must be in the title', async () => {
+  expect(await lookUp(hit('Fishing net', 'A fishing net is used for fishing in the sea.'), 'the sea')).toBeNull()
+})
+test('half the content words must appear somewhere', async () => {
+  expect(await lookUp(hit('Assize of Bread and Ale', 'A 13th-century law regulating the price of ale.'), 'bread baking in the countryside')).toBeNull()
+})
+test('accents do not hide a match', async () => {
+  expect((await lookUp(hit('Pokémon', 'Pokémon is a Japanese media franchise.'), 'pokemon'))!.title).toBe('Pokémon')
 })
