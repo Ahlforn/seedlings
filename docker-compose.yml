@@ -1,0 +1,41 @@
+# The town as one container. Settings come from .env (see .env.example); the database lives in ./data.
+#
+#   mkdir -p data && sudo chown 1000:1000 data     # or set SEEDLINGS_UID/SEEDLINGS_GID, below
+#   docker compose up -d --build
+#   docker compose logs -f
+#
+# The page is published on 127.0.0.1 only: put your web server (with HTTPS) in front of it.
+
+services:
+  seedlings:
+    build: .
+    image: seedlings:latest
+    container_name: seedlings
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      # Fixed inside the container, whatever .env says, so the port mapping and the data volume always line up.
+      PORT: "8787"
+      SEEDLINGS_DB: /app/data/seedlings.db
+    ports:
+      - "127.0.0.1:${SEEDLINGS_HOST_PORT:-8787}:8787"
+    volumes:
+      - ./data:/app/data
+    # Runs as this host user, so ./data can belong to you. Defaults to 1000, the image's own user.
+    user: "${SEEDLINGS_UID:-1000}:${SEEDLINGS_GID:-1000}"
+    # A small init forwards the stop signal, so the town saves the world before it exits.
+    init: true
+    # Stopping waits for any model call in flight, which can take up to a minute.
+    stop_grace_period: 75s
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: "3"

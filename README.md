@@ -122,10 +122,38 @@ New facilities are folders under `src/facilities/`, following `src/facilities/co
 
 ## On a VPS
 
-`deploy/seedlings.service` is a systemd unit with instructions at the top. The page has no HTTPS of
-its own: put it behind your web server or a tunnel, since the password and session cookie travel
-over that connection. Behind nginx, pass the host on so owner events are recognised as coming from the
-page: `proxy_set_header Host $host;` (or `X-Forwarded-Host`).
+The page has no HTTPS of its own: put it behind your web server or a tunnel, since the password and
+session cookie travel over that connection. Behind nginx, pass the host on so owner events are
+recognised as coming from the page: `proxy_set_header Host $host;` (or `X-Forwarded-Host`).
+
+### With Docker Compose
+
+`docker-compose.yml` runs the town as one container. It reads its settings from `.env`, keeps the
+database in `./data` next to the compose file, and publishes the page on `127.0.0.1:8787` only.
+
+```bash
+cp .env.example .env            # then fill it in, and chmod 600 .env
+mkdir -p data && sudo chown 1000:1000 data
+docker compose up -d --build
+docker compose logs -f
+```
+
+- **Moving an existing town:** stop it, then copy its `data/seedlings.db` (and any `-wal` and `-shm`
+  files beside it) into `./data` before the first `up`.
+- **Owning `./data` yourself:** the container runs as user 1000. To run it as your own user instead,
+  add `SEEDLINGS_UID=` and `SEEDLINGS_GID=` (from `id -u` and `id -g`) to `.env`; then `./data` only
+  needs to belong to you.
+- **Another port on the host:** add `SEEDLINGS_HOST_PORT=` to `.env`. Inside the container the port and
+  the database path are fixed, so `PORT` and `SEEDLINGS_DB` in `.env` are ignored there.
+- **Updating:** `git pull && docker compose up -d --build`. Stopping waits up to 75 seconds for a model
+  call in flight, so the world is saved before the container exits.
+- **Checking your key:** `docker compose run --rm seedlings node scripts/smoke.ts`.
+- **Backups:** copy `./data` while the container is stopped, or use `sqlite3 data/seedlings.db ".backup backup.db"`
+  while it runs.
+
+### With systemd
+
+`deploy/seedlings.service` is a systemd unit with instructions at the top.
 
 ## Development
 
