@@ -4,7 +4,7 @@ import type { Building } from '../../src/shared/types.ts'
 import { addInhabitant } from './helpers.ts'
 
 const home = (floors: 1 | 2 | 3, workLeft = 0): Building => ({ id: 'b1', name: 'Burrow', purpose: 'home', about: '', at: { x: 2, y: 2 },
-  workLeft, workTotal: 3, startedDay: 1, recipe: { footprint: 1, floors, wall: 'cream', roof: 'flat', roofColour: 'red', door: true, windows: 0, sign: '', extras: [] } })
+  workLeft, workTotal: 3, startedDay: 1, facility: null, builtBy: 'origin', closed: false, repairLeft: 0, recipe: { footprint: 1, floors, wall: 'cream', roof: 'flat', roofColour: 'red', door: true, windows: 0, sign: '', extras: [] } })
 
 test('only awake characters within four tiles can hear', () => {
   const w = createWorld(1); const pip = character(w, PIP_ID)

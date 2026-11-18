@@ -11,7 +11,7 @@ test('sites are few, uniquely named, free and repeatable', () => {
 test('a site taken by a building is no longer offered', () => {
   const w = createWorld(1); const s = candidateSites(w)[0]
   w.buildings.push({ id: 'b1', name: 'x', purpose: 'home', about: '', at: s.at, workLeft: 0, workTotal: 2,
-    startedDay: 1, recipe: { footprint: 1, floors: 1, wall: 'cream', roof: 'flat', roofColour: 'red',
+    startedDay: 1, facility: null, builtBy: 'origin', closed: false, repairLeft: 0, recipe: { footprint: 1, floors: 1, wall: 'cream', roof: 'flat', roofColour: 'red',
       door: true, windows: 0, sign: '', extras: [] } })
   expect(candidateSites(w).some(c => c.at.x === s.at.x && c.at.y === s.at.y)).toBe(false)
 })

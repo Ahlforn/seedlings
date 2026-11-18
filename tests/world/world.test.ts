@@ -58,3 +58,13 @@ test('a stage 1 world gains the new fields and keeps everything else', () => {
   expect(w.minutes).toBe(5000); expect(w.notes).toEqual([]); expect(w.populationLimit).toBe(0)
   expect(w.characters[0]).toMatchObject({ id: 'pip', homeId: null, look: null, sheet: null, heard: [] })
 })
+
+// Review Focus 3 (stage 3)
+test('a stage 2 world gains the stage 3 fields', () => {
+  const old = JSON.parse(JSON.stringify(createWorld(1))); delete old.weatherHeldUntil; delete old.pictures; delete old.uses
+  old.buildings.push({ id: 'b1', name: 'Burrow', purpose: 'home', about: '', at: { x: 2, y: 2 }, workLeft: 0, workTotal: 3, startedDay: 1,
+    recipe: { footprint: 1, floors: 1, wall: 'cream', roof: 'flat', roofColour: 'red', door: true, windows: 0, sign: '', extras: [] } })
+  const w = migrateWorld(old)
+  expect(w).toMatchObject({ weatherHeldUntil: 0, pictures: [], uses: {} })
+  expect(w.buildings[0]).toMatchObject({ facility: null, builtBy: 'origin', closed: false, repairLeft: 0 })
+})

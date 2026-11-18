@@ -28,9 +28,10 @@ export function residents(world: World, b: Building): Character[] {
   return world.characters.filter((c) => c.homeId === b.id)
 }
 
-/** Finished homes with fewer residents than floors. */
+/** Finished, not closed, not broken. */
+export const inUse = (b: Building) => b.workLeft === 0 && !b.closed && b.repairLeft === 0
+
+/** Homes in use with fewer residents than floors. */
 export function homesWithRoom(world: World): Building[] {
-  return world.buildings.filter(
-    (b) => b.purpose === 'home' && b.workLeft === 0 && residents(world, b).length < b.recipe.floors,
-  )
+  return world.buildings.filter((b) => b.purpose === 'home' && inUse(b) && residents(world, b).length < b.recipe.floors)
 }

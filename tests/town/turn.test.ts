@@ -193,7 +193,7 @@ test('creating someone leaves a memory in Pip and in the newcomer', async () => 
   const make = JSON.stringify({ consider: 'company', do: [{ action: 'create_inhabitant', params: { name: 'Mo', kind: 'a moth', who: 'Shy.', traits: 'shy',
     cares_about: 'quiet', fears: 'noise', colour: 'blue', mark: 'ears', home: 'Burrow' } }], because: '.' })
   const d = deps([make]); d.world.populationLimit = 1
-  d.world.buildings.push({ id: 'b1', name: 'Burrow', purpose: 'home', about: '', at: { x: 2, y: 2 }, workLeft: 0, workTotal: 3, startedDay: 1,
+  d.world.buildings.push({ id: 'b1', name: 'Burrow', purpose: 'home', about: '', at: { x: 2, y: 2 }, workLeft: 0, workTotal: 3, startedDay: 1, facility: null, builtBy: 'origin', closed: false, repairLeft: 0,
     recipe: { footprint: 1, floors: 1, wall: 'cream', roof: 'flat', roofColour: 'red', door: true, windows: 0, sign: '', extras: [] } })
   const out = await runTurn(d, PIP_ID)
   expect(out.created).not.toBeNull()

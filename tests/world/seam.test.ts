@@ -177,7 +177,7 @@ test('Pip can walk to an inhabitant by name', () => {
 })
 test('a home tells an inhabitant who built it and who lives there', () => {
   const w = createWorld(1)
-  w.buildings.push({ id: 'b1', name: 'Burrow', purpose: 'home', about: 'a snug home', at: { x: 2, y: 2 }, workLeft: 0, workTotal: 3, startedDay: 1,
+  w.buildings.push({ id: 'b1', name: 'Burrow', purpose: 'home', about: 'a snug home', at: { x: 2, y: 2 }, workLeft: 0, workTotal: 3, startedDay: 1, facility: null, builtBy: 'origin', closed: false, repairLeft: 0,
     recipe: { footprint: 1, floors: 1, wall: 'cream', roof: 'flat', roofColour: 'red', door: true, windows: 0, sign: '', extras: [] } })
   const mo = addInhabitant(w, 'Mo', { x: 2, y: 2 }); mo.homeId = 'b1'
   const r = act(w, mo.id, { action: 'look_at', params: { target: 'Burrow' } })

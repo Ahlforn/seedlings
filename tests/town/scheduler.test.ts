@@ -42,7 +42,7 @@ test('provider failures back off and the world keeps ticking', async () => {
 test('a restart resumes without jumping time or losing work', async () => {
   const d = deps([wait]); const s1 = createScheduler(d)
   d.world.buildings.push({ id: 'b1', name: 'Half', purpose: 'home', about: '', at: { x: 2, y: 2 }, workLeft: 1, workTotal: 2,
-    startedDay: 1, recipe: { footprint: 1, floors: 1, wall: 'cream', roof: 'flat', roofColour: 'red', door: true, windows: 0, sign: '', extras: [] } })
+    startedDay: 1, facility: null, builtBy: 'origin', closed: false, repairLeft: 0, recipe: { footprint: 1, floors: 1, wall: 'cream', roof: 'flat', roofColour: 'red', door: true, windows: 0, sign: '', extras: [] } })
   await s1.step(5000); const before = d.world.minutes
   d.clock.t += 6 * 3_600_000                                          // six hours of downtime
   const reloaded = d.store.loadWorld()!
@@ -78,7 +78,7 @@ const sleepReply = '{"consider":"tired","do":[{"action":"sleep","params":{"targe
 const diaryReply = '{"diary":"A day.","memories":[],"mind":[],"done":[]}'
 const free = (d: ReturnType<typeof deps>) => { const p = character(d.world, PIP_ID); p.asleep = false; p.busyUntil = 0; p.queue = [] }
 const halfBuilt = (d: ReturnType<typeof deps>) => d.world.buildings.push({ id: 'b1', name: 'Half', purpose: 'home', about: '', at: { x: 12, y: 12 },
-  workLeft: 1, workTotal: 2, startedDay: 1, recipe: { footprint: 1, floors: 1, wall: 'cream', roof: 'flat', roofColour: 'red', door: true, windows: 0, sign: '', extras: [] } })
+  workLeft: 1, workTotal: 2, startedDay: 1, facility: null, builtBy: 'origin', closed: false, repairLeft: 0, recipe: { footprint: 1, floors: 1, wall: 'cream', roof: 'flat', roofColour: 'red', door: true, windows: 0, sign: '', extras: [] } })
 const work = '{"consider":"build","do":[{"action":"work_on","params":{"target":"Half"}}],"because":"."}'
 
 test('I2: a failing reflection does not make Pip think faster', async () => {

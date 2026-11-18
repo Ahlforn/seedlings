@@ -8,7 +8,7 @@ const sheet = { name: 'Mo', kind: 'a moth', who: 'Mo is shy and notices everythi
 let w: World; let burrow: Building
 beforeEach(() => {
   w = createWorld(1); w.populationLimit = 3
-  burrow = { id: 'b1', name: 'Burrow', purpose: 'home', about: '', at: { x: 2, y: 2 }, workLeft: 0, workTotal: 3, startedDay: 1,
+  burrow = { id: 'b1', name: 'Burrow', purpose: 'home', about: '', at: { x: 2, y: 2 }, workLeft: 0, workTotal: 3, startedDay: 1, facility: null, builtBy: 'origin', closed: false, repairLeft: 0,
     recipe: { footprint: 1, floors: 2, wall: 'cream', roof: 'flat', roofColour: 'red', door: true, windows: 0, sign: '', extras: [] } }
   w.buildings.push(burrow)
 })

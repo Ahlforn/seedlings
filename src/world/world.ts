@@ -64,6 +64,9 @@ export function createWorld(seed: number): World {
     events: [],
     notes: [],
     populationLimit: 0,
+    weatherHeldUntil: 0,
+    pictures: [],
+    uses: {},
     nextId: 4,
   }
   const start: Tile = { x: 12, y: 12 }
@@ -100,6 +103,15 @@ export function createWorld(seed: number): World {
 export function migrateWorld(world: World): World {
   world.notes ??= []
   world.populationLimit ??= 0
+  world.weatherHeldUntil ??= 0
+  world.pictures ??= []
+  world.uses ??= {}
+  for (const b of world.buildings) {
+    b.facility ??= null
+    b.builtBy ??= 'origin'
+    b.closed ??= false
+    b.repairLeft ??= 0
+  }
   for (const c of world.characters) {
     c.homeId ??= null
     c.look ??= null
@@ -140,7 +152,8 @@ export function advance(world: World, minutes: number): void {
     world.minutes += dt
     left -= dt
     for (const c of world.characters) drift(world, c, dt / 60)
-    if (Math.floor(world.minutes / 60) > hourBefore && random(world) < RAIN_CHANGE) {
+    // The owner's weather holds for a while before it drifts again.
+    if (Math.floor(world.minutes / 60) > hourBefore && world.minutes > world.weatherHeldUntil && random(world) < RAIN_CHANGE) {
       const step = random(world) < 0.5 ? -1 : 1
       world.rain = clamp(world.rain + step, 0, 3) as World['rain']
     }

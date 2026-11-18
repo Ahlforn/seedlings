@@ -7,7 +7,7 @@
 import { COLOURS, EXTRAS, MARKS, PURPOSES, ROOFS, cleanText, validateRecipe, workUnits } from '../shared/recipe.ts'
 import type { Act, Building, Character, MemoryKind, Purpose, Tile, Urgency, World } from '../shared/types.ts'
 import { clockOf } from './clock.ts'
-import { HEARD_MAX, NOTES_MAX, RESERVED_NAMES, distance, homesWithRoom, others, residents, withinHearing } from './people.ts'
+import { HEARD_MAX, NOTES_MAX, RESERVED_NAMES, distance, homesWithRoom, inUse, others, residents, withinHearing } from './people.ts'
 import { candidateSites } from './sites.ts'
 import { addEvent, character, clamp, random, urgency } from './world.ts'
 
@@ -105,8 +105,9 @@ type MoveDef = {
 
 /** Names match whatever their case, and with or without a leading "the" or "a": models drop both. */
 const plain = (name: string) => name.trim().toLowerCase().replace(/^(the|an|a)\s+/, '')
-const same = (a: string, b: string) => plain(a) === plain(b)
+export const same = (a: string, b: string) => plain(a) === plain(b)
 const finished = (b: Building) => b.workLeft === 0
+const needsWork = (b: Building) => !finished(b) || b.repairLeft > 0
 
 const PURPOSE_WORDS: Record<Purpose, string> = { home: 'a home', food: 'a place to eat', other: 'a building' }
 const FEATURE_LOOKS: Record<string, string> = {
@@ -134,11 +135,13 @@ function things(world: World, c: Character): Thing[] {
   for (const b of world.buildings) {
     const what = b.about || PURPOSE_WORDS[b.purpose]
     const living = residents(world, b).map((r) => r.name)
-    const who = `${c.tier === 'origin' ? 'You built it.' : `${builder} built it.`}${living.length ? ` Home to ${andList(living)}.` : ''}`
+    const maker = b.builtBy === 'nobody' ? 'Nobody you know built it.' : c.tier === 'origin' ? 'You built it.' : `${builder} built it.`
+    const who = `${maker}${living.length ? ` Home to ${andList(living)}.` : ''}`
+    const state = b.closed ? 'closed' : b.repairLeft > 0 ? 'broken' : what
     list.push({
       name: b.name,
       at: b.at,
-      describe: finished(b) ? `${b.name} (${what})` : `the building site for ${b.name}`,
+      describe: finished(b) ? `${b.name} (${state})` : `the building site for ${b.name}`,
       look: finished(b)
         ? `${b.name}: ${what}. ${who}`
         : `The building site for ${b.name}. ${b.workLeft} of ${b.workTotal} parts of the work are still to do.`,
@@ -183,12 +186,12 @@ function uniqueBuildingName(world: World, wanted: string, purpose: Purpose): str
 const foodSpots = (world: World, c: Character) =>
   things(world, c).filter(
     (t) => world.features.some((f) => f.kind === 'berry_bush' && f.name === t.name) ||
-      world.buildings.some((b) => b.name === t.name && finished(b) && b.purpose === 'food'),
+      world.buildings.some((b) => b.name === t.name && inUse(b) && b.purpose === 'food'),
   )
 const sleepSpots = (world: World, c: Character) =>
   things(world, c).filter(
     (t) => world.features.some((f) => f.kind === 'hollow_tree' && f.name === t.name) ||
-      world.buildings.some((b) => b.name === t.name && finished(b) && b.purpose === 'home'),
+      world.buildings.some((b) => b.name === t.name && inUse(b) && b.purpose === 'home'),
   )
 
 /** Places, things and other characters a character can walk to. */
@@ -310,7 +313,7 @@ const MOVES: MoveDef[] = [
       world.buildings.push({
         id: `b${world.nextId++}`, name, purpose, about: cleanText(params.about ?? '', ABOUT_MAX),
         recipe: checked.recipe, at: { x: site.at.x, y: site.at.y }, workLeft: work, workTotal: work,
-        startedDay: clockOf(world.minutes).day,
+        startedDay: clockOf(world.minutes).day, facility: null, builtBy: 'origin', closed: false, repairLeft: 0,
       })
       return { ok: true, done: { message: `You mark out the ground for ${name}. It needs ${work} spells of work before it is finished.`, moodDelta: 0, minutes, label: `starting ${name}`, event: `${c.name} marked out a building site for ${name}` } }
     },
@@ -318,17 +321,25 @@ const MOVES: MoveDef[] = [
   {
     spec: {
       name: 'work_on', label: 'building', tier: 'origin',
-      description: 'Put an hour of work into a building you have started.',
-      params: { target: { hint: 'an unfinished building from the list' } },
+      description: 'Put an hour of work into a building you have started, or into mending a broken one.',
+      params: { target: { hint: 'an unfinished or broken building from the list' } },
     },
     offer(world) {
-      const sites = world.buildings.filter((b) => !finished(b))
-      if (sites.length === 0) return { ok: false, reason: 'there is no unfinished building' }
+      const sites = world.buildings.filter(needsWork)
+      if (sites.length === 0) return { ok: false, reason: 'there is no unfinished or broken building' }
       return { ok: true, params: { target: sites.map((b) => b.name) } }
     },
     perform(world, c, params) {
-      const building = find(world.buildings.filter((b) => !finished(b)), params.target)!
+      const building = find(world.buildings.filter(needsWork), params.target)!
       const minutes = walk(c, building.at) + 60
+      if (finished(building)) {
+        building.repairLeft -= 1
+        const label = `mending ${building.name}`
+        if (building.repairLeft === 0) {
+          return { ok: true, done: { message: `You mend ${building.name}. It works again.`, moodDelta: 0.2, minutes, label, event: `${c.name} mended ${building.name}` } }
+        }
+        return { ok: true, done: { message: `You mend ${building.name}. ${building.repairLeft} more to go.`, moodDelta: 0.03, minutes, label, event: `${c.name} worked on mending ${building.name}` } }
+      }
       building.workLeft -= 1
       const label = `working on ${building.name}`
       if (finished(building)) {
@@ -610,6 +621,9 @@ export function act(world: World, characterId: string, move: Act): ActResult {
     if (given === undefined && def.spec.params[key]?.optional) continue
     if (given === undefined || !choices.some((choice) => same(choice, String(given)))) {
       const shown = given === undefined ? 'nothing' : `"${cleanText(String(given), 40)}"`
+      // Naming a building that is shut or broken gets told so, rather than a list it is missing from.
+      const shut = given === undefined ? undefined : world.buildings.find((b) => finished(b) && !inUse(b) && same(b.name, String(given)))
+      if (shut) return refuse(world, c, `${shut.name} is ${shut.closed ? 'closed' : 'broken'}.`, label)
       return refuse(world, c, `For ${key} you gave ${shown}. Choose one of: ${choices.join(', ') || 'nothing is available'}.`, label)
     }
   }

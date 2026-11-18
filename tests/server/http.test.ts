@@ -123,7 +123,7 @@ test('trouble reaching the model is shown instead of "thinking"', async () => {
 
 // ---- Stage 2 ----
 test('the state shows every character with its own thought and mind', async () => {
-  world.buildings.push({ id: 'b1', name: 'Burrow', purpose: 'home', about: '', at: { x: 2, y: 2 }, workLeft: 0, workTotal: 3, startedDay: 1,
+  world.buildings.push({ id: 'b1', name: 'Burrow', purpose: 'home', about: '', at: { x: 2, y: 2 }, workLeft: 0, workTotal: 3, startedDay: 1, facility: null, builtBy: 'origin', closed: false, repairLeft: 0,
     recipe: { footprint: 1, floors: 1, wall: 'cream', roof: 'flat', roofColour: 'red', door: true, windows: 0, sign: '', extras: [] } })
   const mo = addInhabitant(world, 'Mo', { x: 2, y: 2 }); mo.homeId = 'b1'; mo.look = { colour: 'blue', mark: 'antennae' }
   mo.asleep = true; world.populationLimit = 3

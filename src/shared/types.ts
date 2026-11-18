@@ -33,6 +33,29 @@ export type Building = {
   workLeft: number
   workTotal: number
   startedDay: number
+  /** the facility kind this building is, or null */
+  facility: string | null
+  /** 'nobody' for a building the owner placed */
+  builtBy: 'origin' | 'nobody'
+  closed: boolean
+  /** spells of work still needed to mend it; 0 when sound */
+  repairLeft: number
+}
+
+export type Mood = 'calm' | 'joyful' | 'lonely' | 'restless' | 'tender' | 'gloomy'
+/** One mark in a picture, on a 100 × 100 canvas. kind is an abstract shape or a motif word. */
+export type Shape = { kind: string; x: number; y: number; size: number; colour: string; turn: number }
+export type Picture = {
+  id: string
+  /** the art place it hangs in */
+  placeId: string
+  by: string
+  byName: string
+  title: string
+  mood: Mood
+  description: string
+  minute: number
+  shapes: Shape[]
 }
 
 /** hunger and tiredness run 0..1, mood runs -1..1 */
@@ -83,6 +106,12 @@ export type World = {
   notes: Note[]
   /** how many inhabitants the budget can support; set by the scheduler */
   populationLimit: number
+  /** world minutes until which the owner's weather holds */
+  weatherHeldUntil: number
+  /** pictures hanging in art places */
+  pictures: Picture[]
+  /** daily use counters for facility limits, keyed e.g. 'cafe' or 'art:<character id>' */
+  uses: Record<string, { day: number; count: number }>
   nextId: number
 }
 

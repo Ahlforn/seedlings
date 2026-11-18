@@ -2,7 +2,7 @@ import { tileToScreen, screenToTile, buildingFaces, drawOrder } from '../../src/
 
 const O = { x: 400, y: 50 }
 const b = (over = {}) => ({ id: 'b', name: 'n', purpose: 'home' as const, about: '', at: { x: 3, y: 4 }, workLeft: 0, workTotal: 3,
-  startedDay: 1, recipe: { footprint: 1 as const, floors: 2 as const, wall: 'cream' as const, roof: 'pitched' as const,
+  startedDay: 1, facility: null, builtBy: 'origin' as const, closed: false, repairLeft: 0, recipe: { footprint: 1 as const, floors: 2 as const, wall: 'cream' as const, roof: 'pitched' as const,
     roofColour: 'red' as const, door: true, windows: 2 as const, sign: 'BREAD', extras: ['chimney' as const] }, ...over })
 
 test('projection and its inverse', () => {

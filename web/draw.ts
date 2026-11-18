@@ -122,6 +122,18 @@ function building(ctx: CanvasRenderingContext2D, b: Building, origin: Point): vo
     ctx.textBaseline = 'middle'
     ctx.fillText('being built', c.x, c.y)
   }
+  if (b.workLeft === 0 && (b.closed || b.repairLeft > 0)) {
+    const c = tileToScreen({ x: b.at.x + b.recipe.footprint, y: b.at.y + b.recipe.footprint / 2 }, origin)
+    const text = b.closed ? 'CLOSED' : 'BROKEN'
+    ctx.font = '700 9px system-ui, sans-serif'
+    const width = ctx.measureText(text).width + 8
+    ctx.fillStyle = b.closed ? '#5b3a1e' : '#8a2f22'
+    ctx.fillRect(c.x - width / 2, c.y - 30, width, 13)
+    ctx.fillStyle = '#fff8e6'
+    ctx.textAlign = 'center'
+    ctx.textBaseline = 'middle'
+    ctx.fillText(text, c.x, c.y - 23.5)
+  }
 }
 
 /** Pip: a cream seed with two leaves sprouting from its head. */
