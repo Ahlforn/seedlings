@@ -46,6 +46,17 @@ export type DiaryEntry = {
   toTurn: number
 }
 
+/** One visit to the café's terminal. */
+export type Lookup = {
+  characterId: string
+  realTs: number
+  worldMinutes: number
+  kind: 'topic' | 'paper'
+  words: string
+  outcome: 'found' | 'missing' | 'failed'
+  title: string
+}
+
 /** Whose spending to count, by character id. */
 export type SpendPool = { only: string } | { except: string }
 
@@ -82,6 +93,10 @@ export type Store = {
   /** 0 when there is no history */
   averageSpend(lastN: number, pool?: SpendPool): number
   spendCount(pool?: SpendPool): number
+  addLookup(l: Lookup): void
+  lookupStats(): { total: number; missing: number; failed: number }
+  /** lookups that found nothing, newest first */
+  recentMisses(limit: number): Lookup[]
   /** every picture ever made, hanging or taken down */
   addPicture(p: Picture): void
   /** newest first */
@@ -128,6 +143,10 @@ create table if not exists ledger (
 );
 create index if not exists ledger_by_ts on ledger (ts);
 create table if not exists flags (key text primary key, value text not null);
+create table if not exists lookups (
+  id integer primary key autoincrement, characterId text not null, realTs integer not null, worldMinutes real not null,
+  kind text not null, words text not null, outcome text not null, title text not null
+);
 create table if not exists pictures (
   id text primary key, placeId text not null, byId text not null, byName text not null, title text not null,
   mood text not null, description text not null, minute real not null, shapes text not null
@@ -177,6 +196,9 @@ export function openStore(path: string): Store {
     if (!statement) statements.set(sql, (statement = db.prepare(sql)))
     return statement
   }
+  const addLookup = db.prepare('insert into lookups (characterId, realTs, worldMinutes, kind, words, outcome, title) values (@characterId, @realTs, @worldMinutes, @kind, @words, @outcome, @title)')
+  const lookupStats = db.prepare("select count(*) as total, coalesce(sum(outcome = 'missing'), 0) as missing, coalesce(sum(outcome = 'failed'), 0) as failed from lookups")
+  const recentMisses = db.prepare("select characterId, realTs, worldMinutes, kind, words, outcome, title from lookups where outcome = 'missing' order by id desc limit ?")
   const addPicture = db.prepare('insert into pictures (id, placeId, byId, byName, title, mood, description, minute, shapes) values (?, ?, ?, ?, ?, ?, ?, ?, ?)')
   const gallery = db.prepare('select * from pictures order by rowid desc limit ?')
   const getFlag = db.prepare('select value from flags where key = ?')
@@ -220,6 +242,9 @@ export function openStore(path: string): Store {
       const { where, args } = whose(pool)
       return (ask(`select count(*) as n from ledger where ${where}`).get(...args) as { n: number }).n
     },
+    addLookup: (l) => { addLookup.run(l) },
+    lookupStats: () => lookupStats.get() as { total: number; missing: number; failed: number },
+    recentMisses: (limit) => recentMisses.all(limit) as Lookup[],
     addPicture: (p) => { addPicture.run(p.id, p.placeId, p.by, p.byName, p.title, p.mood, p.description, p.minute, JSON.stringify(p.shapes)) },
     gallery: (limit) => (gallery.all(limit) as { id: string; placeId: string; byId: string; byName: string; title: string; mood: Picture['mood']; description: string; minute: number; shapes: string }[])
       .map((row) => ({ id: row.id, placeId: row.placeId, by: row.byId, byName: row.byName, title: row.title, mood: row.mood, description: row.description, minute: row.minute, shapes: JSON.parse(row.shapes) as Picture['shapes'] })),

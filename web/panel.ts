@@ -96,6 +96,9 @@ export function showState(state: StateView): void {
   if (who === null) {
     const { count, limit } = state.population
     byId('population').textContent = `${count} ${count === 1 ? 'inhabitant' : 'inhabitants'}, of ${limit} the town can support right now.`
+    const cafe = state.cafe
+    byId('cafe').textContent = `${cafe.today} ${cafe.today === 1 ? 'lookup' : 'lookups'} today, ${cafe.total} in all: ${cafe.missing} found nothing, ${cafe.failed} could not connect.`
+    byId('misses').replaceChildren(...cafe.recentMisses.map((m) => el('li', `Not found: "${m.words}" (${m.who}, ${m.clock})`)))
     showGallery(state)
     byId('events').replaceChildren(...state.events.map((e) => {
       const item = el('li')

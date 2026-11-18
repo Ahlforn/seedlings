@@ -159,3 +159,13 @@ test('the gallery is in the state, newest first', async () => {
   expect(s.gallery[0]).toMatchObject({ byName: 'Mo', mood: 'calm', description: 'd', clock: '08:20, day 1' })
   expect(s.gallery[0].shapes).toHaveLength(1)
 })
+
+// ---- Stage 3: the café ----
+test('café counts and recent misses are in the state', async () => {
+  const mo = addInhabitant(world, 'Mo', { x: 2, y: 2 })
+  const row = (words: string, outcome: 'found' | 'missing' | 'failed') => ({ characterId: mo.id, realTs: 1, worldMinutes: 400, kind: 'topic' as const, words, outcome, title: '' })
+  store.addLookup(row('moths', 'found')); store.addLookup(row('x', 'missing')); store.addLookup(row('y', 'failed'))
+  const s = await getJson('/api/state')
+  expect(s.cafe).toMatchObject({ today: 0, total: 3, missing: 1, failed: 1 })
+  expect(s.cafe.recentMisses).toEqual([{ who: 'Mo', words: 'x', clock: '06:40, day 1' }])
+})

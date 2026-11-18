@@ -11,6 +11,8 @@ import { createServer } from './server/http.ts'
 import { openStore } from './store/store.ts'
 import { createScheduler } from './town/scheduler.ts'
 import type { FacilityServices } from './facilities/contract.ts'
+import { fakeWikipedia } from './facilities/cafe/fake.ts'
+import { wikipediaUserAgent } from './facilities/cafe/wikipedia.ts'
 import { createWorld, migrateWorld } from './world/world.ts'
 
 const FAKE_INTERVAL_MS = 1000
@@ -38,7 +40,8 @@ export async function startTown(config: Config): Promise<{ port: number; stop():
     Date.now,
     () => world.characters.filter((c) => c.tier === 'inhabitant').length,
   )
-  const services: FacilityServices = { store, now: Date.now, fetchJson: fetchJsonWith('seedlings-town/0.1') }
+  const fetchJson = config.fakeModel ? fakeWikipedia() : fetchJsonWith(wikipediaUserAgent(config.wikiContact))
+  const services: FacilityServices = { store, now: Date.now, fetchJson }
   const scheduler = createScheduler({ world, store, model, budget, config, now: Date.now, services })
   const server = createServer({
     world: () => world,

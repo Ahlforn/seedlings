@@ -44,3 +44,8 @@ test('the inhabitant model is a setting', () => {
   expect(loadConfig({ SEEDLINGS_PASSWORD: 'p', SEEDLINGS_FAKE_MODEL: '1' }).inhabitantModel).toBe('glm-5.3-flash')
   expect(loadConfig({ SEEDLINGS_PASSWORD: 'p', SEEDLINGS_FAKE_MODEL: '1', SEEDLINGS_INHABITANT_MODEL: 'tiny' }).inhabitantModel).toBe('tiny')
 })
+
+test('a contact for Wikipedia is an optional setting', () => {
+  expect(loadConfig({ SEEDLINGS_PASSWORD: 'p', SEEDLINGS_FAKE_MODEL: '1' }).wikiContact).toBe('')
+  expect(loadConfig({ SEEDLINGS_PASSWORD: 'p', SEEDLINGS_FAKE_MODEL: '1', SEEDLINGS_WIKI_CONTACT: 'https://example.org' }).wikiContact).toBe('https://example.org')
+})

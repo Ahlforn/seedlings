@@ -14,6 +14,8 @@ export type Config = {
   maxTokens: number
   /** Sent as reasoning_effort to models that reason before answering. Empty leaves it to the provider. */
   reasoningEffort: string
+  /** sent to Wikipedia with the café's requests, as Wikimedia asks of automated clients; empty sends none */
+  wikiContact: string
   daysPerRealDay: number
   tickMs: number
   seed: number
@@ -77,6 +79,7 @@ export function loadConfig(env: Env): Config {
     jsonMode: (env.SEEDLINGS_JSON_MODE ?? '1') !== '0',
     maxTokens: wholeBetween(env, 'SEEDLINGS_MAX_TOKENS', 8000, 1, 100_000),
     reasoningEffort: effort(env),
+    wikiContact: (env.SEEDLINGS_WIKI_CONTACT ?? '').trim(),
     daysPerRealDay: positive(env, 'SEEDLINGS_DAYS_PER_REAL_DAY', 4),
     tickMs: positive(env, 'SEEDLINGS_TICK_MS', 5000),
     seed: number(env, 'SEEDLINGS_SEED', 1),

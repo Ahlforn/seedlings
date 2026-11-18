@@ -144,6 +144,8 @@ export type StateView = {
   }[]
   /** newest first */
   events: { clock: string; text: string }[]
+  /** the café's lookups: today's count, totals, and the latest that found nothing */
+  cafe: { today: number; total: number; missing: number; failed: number; recentMisses: { who: string; words: string; clock: string }[] }
   /** the newest pictures, hanging or taken down, newest first */
   gallery: { id: string; title: string; byName: string; mood: Mood; description: string; clock: string; shapes: Shape[] }[]
   population: { count: number; limit: number }
